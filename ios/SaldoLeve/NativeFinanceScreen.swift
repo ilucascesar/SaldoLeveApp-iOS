@@ -6,6 +6,7 @@ struct NativeFinanceScreen: View {
     let section: NativeAppSection
     var secondary = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var search = ""
     @State private var status = "all"
     @State private var initialized = false
@@ -49,8 +50,8 @@ struct NativeFinanceScreen: View {
                 .sheet(item: $route) { NativeFinanceModal(finance: finance, route: $0) }
                 .task { if finance.needsSync { await finance.refresh() } }
                 .onAppear { if !initialized { status = layout.expenseDefaultFilter; initialized = true } }
-                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-                    if (store.section == section || secondary) && !store.isPreview && !finance.busy && (finance.needsSync || Date().timeIntervalSince(finance.syncedAt ?? .distantPast) > 15) { Task { await finance.refresh() } }
+                .onChange(of: scenePhase) { phase in
+                    if phase == .active && (store.section == section || secondary) && !store.isPreview && !finance.busy && (finance.needsSync || Date().timeIntervalSince(finance.syncedAt ?? .distantPast) > 15) { Task { await finance.refresh() } }
                 }
         }
     }

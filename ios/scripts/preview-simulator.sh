@@ -61,7 +61,7 @@ xcodebuild -project SaldoLeve.xcodeproj -scheme SaldoLeve -configuration Debug \
   -parallel-testing-enabled NO -only-testing:SaldoLeveUITests \
   -test-timeouts-enabled YES -default-test-execution-time-allowance 90 \
   -maximum-test-execution-time-allowance 120 \
-  -resultBundlePath build/Interactions.xcresult CODE_SIGNING_ALLOWED=NO test 2>&1 | tee build/interactions.log || { testStatus=$?; tail -n 150 build/interactions.log; }
+  -resultBundlePath build/Interactions.xcresult ARCHS="$(uname -m)" ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO test 2>&1 | tee build/interactions.log || { testStatus=$?; tail -n 150 build/interactions.log; }
 grep -E 'Test Case|Executed |5000 tasks' build/interactions.log || true
 
 # Export screenshot attachments when supported by this Xcode version.

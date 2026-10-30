@@ -8,9 +8,10 @@ var nativeBlue: Color {
 
 struct NativeRootView: View {
     @StateObject private var store = NativeStore()
-    @State private var active = UIApplication.shared.applicationState == .active
+    @Environment(\.scenePhase) private var scenePhase
     @State private var pendingURL: URL?
     @AppStorage("nativeAppearance") private var appearance = "system"
+    private var active: Bool { scenePhase == .active }
     var body: some View {
         Group {
             if store.locked {
@@ -51,7 +52,6 @@ struct NativeRootView: View {
                 if store.user != nil && store.networkAvailable && !store.working && !store.locked { await store.refresh(); if store.section != .tasks { await store.finance.refresh() } }
             }
         }
-        .onAppear { active = UIApplication.shared.applicationState == .active }
         .onOpenURL { url in
             guard url.scheme == "saldoleve", ["focus", "tasks"].contains(url.host ?? "") else { return }
             pendingURL = url; openWidgetDestination()
@@ -60,20 +60,20 @@ struct NativeRootView: View {
         .onChange(of: store.refreshing) { _ in openWidgetDestination() }
         .onChange(of: store.locked) { _ in openWidgetDestination() }
         .onChange(of: store.user?.id) { _ in openWidgetDestination() }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in active = false; store.persist() }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
-            if UserDefaults.standard.bool(forKey: "nativeBiometrics") { store.locked = store.user != nil }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-            active = true
-            if !store.isPreview && store.user != nil && !store.working { Task { await store.refresh(); if store.section != .tasks { await store.finance.refresh() } } }
+        .onChange(of: scenePhase) { phase in
+            if phase != .active { store.persist() }
+            if phase == .background && UserDefaults.standard.bool(forKey: "nativeBiometrics") { store.locked = store.user != nil }
+            if phase == .active {
+                openWidgetDestination()
+                if !store.isPreview && store.user != nil && !store.working { Task { await store.refresh(); if store.section != .tasks { await store.finance.refresh() } } }
+            }
         }
         .alert("SaldoLeve", isPresented: Binding(get: { store.message != nil }, set: { if !$0 { store.message = nil } })) {
             Button("OK") { store.message = nil }
         } message: { Text(store.message ?? "") }
     }
     private func openWidgetDestination() {
-        guard let url = pendingURL, !store.loading, !store.locked, store.user != nil else { return }
+        guard let url = pendingURL, active, !store.loading, !store.locked, store.user != nil else { return }
         if url.host == "focus" { pendingURL = nil; store.openedFinance = .init(kind: "focus"); return }
         store.section = .tasks
         let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "id" }?.value

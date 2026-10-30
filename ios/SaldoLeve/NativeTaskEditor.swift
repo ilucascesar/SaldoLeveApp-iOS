@@ -12,6 +12,7 @@ struct NativeTaskEditor: View {
     @ObservedObject var store: NativeStore
     let original: NativeTask
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var task: NativeTask
     @State private var baseline: NativeTask
     @State private var loading = true
@@ -209,9 +210,9 @@ struct NativeTaskEditor: View {
                 if pending { syncNotice = "O item foi atualizado no servidor. As alterações locais ainda não confirmadas foram descartadas." }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in autosave?.cancel(); if !store.isPreview { serverReady = false } }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-            if !store.isPreview { Task { await retrySync() } }
+        .onChange(of: scenePhase) { phase in
+            if phase != .active { autosave?.cancel(); if !store.isPreview { serverReady = false } }
+            else if !store.isPreview { Task { await retrySync() } }
         }
         .onChange(of: history) { open in if !open { Task { await reload() } } }
     }
