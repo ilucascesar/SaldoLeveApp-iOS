@@ -5,6 +5,9 @@ func check(_ condition: @autoclosure () -> Bool, _ description: String) {
 }
 
 let address = SiteAddress("https://tools.ilucas.com.br/SaldoLeveApp/sistema.php")!
+check(TaskScope.fixedDrawerScopes == [.all, .today, .overdue], "Only Everything, Today and Overdue stay fixed in the drawer")
+check(TaskScope.additionalDrawerScopes == [.tomorrow, .upcoming, .done, .archived, .trash, .assigned], "All other task scopes stay in More filters in the requested order")
+check(Set((TaskScope.fixedDrawerScopes + TaskScope.additionalDrawerScopes).map(\.key)).count == TaskScope.allCases.count, "Drawer scopes must cover every filter without duplicates")
 check(address.contains(URL(string: "https://tools.ilucas.com.br/SaldoLeveApp/login.php")!), "Login shares the configured HTTPS origin")
 check(address.contains(URL(string: "https://tools.ilucas.com.br:443/SaldoLeveApp/api.php?api=export")!), "Default HTTPS port")
 check(address.contains(URL(string: "https://TOOLS.ILUCAS.COM.BR/SaldoLeveApp/nova_senha.php")!), "Host case")

@@ -162,6 +162,8 @@ struct NativeSnapshot: Codable {
     }
 }
 enum TaskScope: String, CaseIterable, Identifiable {
+    static let fixedDrawerScopes: [Self] = [.all, .today, .overdue]
+    static let additionalDrawerScopes: [Self] = [.tomorrow, .upcoming, .done, .archived, .trash, .assigned]
     case all = "Tudo", today = "Hoje", tomorrow = "Amanhã", upcoming = "Próximos 7 dias", overdue = "Atrasadas", assigned = "Atribuídas a mim", done = "Concluídas", archived = "Arquivo", trash = "Lixeira"
     var id: String { rawValue }
     var key: String { switch self {

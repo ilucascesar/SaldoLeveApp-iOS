@@ -128,6 +128,32 @@ final class InteractionTests: XCTestCase {
         pending.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
         expectation(for: NSPredicate { _, _ in String(describing: pending.value ?? "") == "0" }, evaluatedWith: pending)
         waitForExpectations(timeout: 5)
+        app.navigationBars.buttons["Layout e personalização"].firstMatch.tap()
+        dashboard.tap()
+        XCTAssertEqual(String(describing: pending.value ?? ""), "0", "Returning to the layout root must not discard the pending change")
+        app.buttons["layout-dashboard-order"].tap()
+        XCTAssertFalse(app.switches.matching(NSPredicate(format: "label CONTAINS %@", "Pendências do mês")).firstMatch.exists, "There is only one pending-visibility switch")
+        app.navigationBars.buttons["Visão geral"].firstMatch.tap()
+        app.buttons["layout-save"].tap()
+        XCTAssertTrue(app.navigationBars["Configurações"].waitForExistence(timeout: 8))
+        app.buttons["settings-layout"].tap(); dashboard.tap()
+        XCTAssertEqual(String(describing: pending.value ?? ""), "0", "Saved canonical layout survives reopening settings")
+        app.navigationBars.buttons["Layout e personalização"].firstMatch.tap()
+        app.navigationBars.buttons["Configurações"].firstMatch.tap()
+        app.buttons["Fechar"].firstMatch.tap()
+        app.tabBars.buttons["Visão geral"].tap()
+        XCTAssertFalse(app.staticTexts["Pendências do mês"].exists, "The dashboard renders the confirmed hidden section")
+    }
+    func testETaskDrawerKeepsOnlyThreeFixedScopes() {
+        let app = XCUIApplication(); app.launchArguments = ["--ui-preview"]; app.launch()
+        XCTAssertTrue(app.buttons["Categorias e filtros"].waitForExistence(timeout: 20)); app.buttons["Categorias e filtros"].tap()
+        for key in ["all", "today", "overdue"] { XCTAssertTrue(app.buttons["task-scope-" + key].exists) }
+        for key in ["tomorrow", "next", "done", "archived", "trash", "assigned"] { XCTAssertFalse(app.buttons["task-scope-" + key].exists) }
+        app.buttons["task-more-filters"].firstMatch.tap()
+        for key in ["tomorrow", "next", "done", "archived", "trash", "assigned"] { XCTAssertTrue(app.buttons["task-scope-" + key].exists) }
+        app.buttons["task-scope-tomorrow"].tap()
+        XCTAssertFalse(app.buttons["task-scope-all"].exists)
+        XCTAssertTrue(app.staticTexts["Amanhã"].firstMatch.waitForExistence(timeout: 5))
     }
     func testBirthdayDefaultsExplainExistingRecordsAndIndividualOverrides() {
         let app = XCUIApplication()

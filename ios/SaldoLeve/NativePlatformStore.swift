@@ -53,6 +53,12 @@ import SwiftUI
         guard canWrite else { throw NativeFailure("Conecte-se e atualize antes de alterar as configurações.") }
         guard revision == snapshot.revision else { throw NativeFailure("A configuração mudou no servidor. Atualize antes de salvar.", status: 409) }
         guard !applyBirthdayDefaults || snapshot.apiVersion >= 4 else { throw NativeFailure("Envie primeiro a atualização da HostGator para aplicar os avisos a todos os aniversariantes.") }
+        #if DEBUG
+        if parent.isPreview {
+            guard let encoded = try? JSONEncoder().encode(config), let canonical = try? JSONDecoder().decode(JSONObject.self, from: encoded) else { throw NativeFailure("Invalid preview config") }
+            snapshot.config = canonical; snapshot.revision += 1; applyRemoteLayout(); return
+        }
+        #endif
         saving = true; defer { saving = false }
         do {
             let result = try await write(action: "platform_save_config", body: ["revision": .number(Double(revision)), "config": .object(config), "applyBirthdayDefaults": .bool(applyBirthdayDefaults)])

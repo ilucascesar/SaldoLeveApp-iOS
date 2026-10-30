@@ -10,7 +10,7 @@ Marque run_ui_tests quando precisar validar a interface: a seleção atual cobre
 
 A compilação não recebe senha Apple, certificado ou perfil de provisionamento. Instale o IPA com seu instalador de sideload e sua própria conta Apple. A assinatura gratuita precisa ser renovada. O app exige uma instalação compatível do backend e um login válido nessa instalação.
 
-Na versão 2.5.4, a Visão geral permite ocultar Pendências do mês sem confundir cancelamentos de consulta com falta de conexão. Os padrões de aniversário podem ser aplicados a todos os cadastros, com personalização individual posterior; envie primeiro a atualização correspondente do backend.
+Na versão 2.5.5, o layout tem um único controle para Pendências do mês e botão Salvar nas páginas internas. Voltar de uma página preserva as alterações ainda em edição. O menu de tarefas mantém Tudo, Hoje e Atrasadas fixos, com os outros filtros em Mais filtros. O marcador [verify-ui] no commit executa somente os dois testes relacionados a esta correção.
 
 ## Widgets
 

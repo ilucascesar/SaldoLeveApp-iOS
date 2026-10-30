@@ -179,8 +179,8 @@ struct NativeTaskList: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 4) {
-                    ForEach(TaskScope.allCases.filter { $0 != .assigned }) { value in drawerLine(value.rawValue, icon: value.icon, count: store.taskIndex.scopes[value.key] ?? 0, active: category.isEmpty && tag.isEmpty && scope == value, color: value == .overdue ? .red : nativeBlue) { choose(value); closeDrawer() } }
-                    DisclosureGroup("Mais filtros") { drawerLine(TaskScope.assigned.rawValue, icon: "person", count: store.taskIndex.scopes["assigned"] ?? 0, active: scope == .assigned, color: nativeBlue) { choose(.assigned); closeDrawer() } }.font(.system(size: 13)).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 8)
+                    ForEach(TaskScope.fixedDrawerScopes) { value in scopeDrawerLine(value) }
+                    DisclosureGroup("Mais filtros") { ForEach(TaskScope.additionalDrawerScopes) { value in scopeDrawerLine(value) } }.font(.system(size: 13)).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 8).accessibilityIdentifier("task-more-filters")
                     HStack { Text("Categorias").font(.system(size: 13, weight: .semibold)); Spacer(); Button { editingCategory = nil; closeDrawer(); categoryEditor = true } label: { Image(systemName: "plus").frame(width: 36, height: 36) }.accessibilityLabel("Criar categoria") }.foregroundStyle(.secondary).padding(.leading, 12).padding(.top, 9)
                     ForEach(folders, id: \.self) { folder in if !folder.isEmpty { Label(folder, systemImage: "folder").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary).padding(.leading, 14).padding(.top, 10) }; ForEach(store.snapshot.lists.filter { !$0.archived && $0.fields.text("folder") == folder }) { categoryLine($0) } }
                     DisclosureGroup("Categorias arquivadas") { ForEach(store.snapshot.lists.filter(\.archived)) { categoryLine($0) } }.font(.system(size: 12)).foregroundStyle(.secondary).padding(12)
@@ -194,6 +194,9 @@ struct NativeTaskList: View {
     }
     private var folders: [String] { Array(Set(store.snapshot.lists.filter { !$0.archived }.map { $0.fields.text("folder") })).sorted() }
     private var allTags: [String] { store.taskIndex.tags }
+    private func scopeDrawerLine(_ value: TaskScope) -> some View {
+        drawerLine(value.rawValue, icon: value.icon, count: store.taskIndex.scopes[value.key] ?? 0, active: category.isEmpty && tag.isEmpty && scope == value, color: value == .overdue ? .red : nativeBlue) { choose(value); closeDrawer() }.accessibilityIdentifier("task-scope-" + value.key)
+    }
     private func drawerLine(_ title: String, icon: String, count: Int, active: Bool, color: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) { HStack(spacing: 12) { Image(systemName: icon).font(.system(size: 18)).foregroundStyle(color).frame(width: 24); Text(title).font(.system(size: 15)).lineLimit(1); Spacer(minLength: 2); if count > 0 { Text("\(count)").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary) } }.foregroundStyle(active ? nativeBlue : Color.primary).padding(.horizontal, 12).frame(minHeight: 44).background(active ? nativeBlue.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 10)) }.buttonStyle(.plain)
     }

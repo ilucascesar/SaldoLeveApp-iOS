@@ -74,10 +74,10 @@ jobs:
         run: BUILD_NUMBER=$((1000 + BUILD_NUMBER)) bash ios/scripts/build-unsigned.sh
 
       - name: Conferir telas no simulador com dados sintéticos
-        if: ${{ inputs.run_ui_tests || inputs.full_ui_tests }}
+        if: ${{ inputs.run_ui_tests || inputs.full_ui_tests || contains(github.event.head_commit.message, '[verify-ui]') }}
         timeout-minutes: 25
         env:
-          UI_TEST_FILTER: ${{ inputs.full_ui_tests && 'all' || 'testCDashboardRefreshWithoutPendingKeepsServerConnection testDLayoutClearlyControlsMonthlyPendingSection testBirthdayDefaultsExplainExistingRecordsAndIndividualOverrides testOfflineEditorIsReadOnlyAndCannotSaveDrafts' }}
+          UI_TEST_FILTER: ${{ inputs.full_ui_tests && 'all' || 'testDLayoutClearlyControlsMonthlyPendingSection testETaskDrawerKeepsOnlyThreeFixedScopes' }}
           PREVIEW_SCREENS: list
         run: bash ios/scripts/preview-simulator.sh
 
@@ -95,7 +95,7 @@ jobs:
           retention-days: 3
 
       - name: Disponibilizar imagens das telas
-        if: ${{ always() && (inputs.run_ui_tests || inputs.full_ui_tests) }}
+        if: ${{ always() && (inputs.run_ui_tests || inputs.full_ui_tests || contains(github.event.head_commit.message, '[verify-ui]')) }}
         uses: actions/upload-artifact@v4
         with:
           name: SaldoLeve-Telas-iPhone
@@ -104,7 +104,7 @@ jobs:
           retention-days: 3
 
       - name: Disponibilizar diagnósticos do simulador
-        if: ${{ always() && (inputs.run_ui_tests || inputs.full_ui_tests) }}
+        if: ${{ always() && (inputs.run_ui_tests || inputs.full_ui_tests || contains(github.event.head_commit.message, '[verify-ui]')) }}
         uses: actions/upload-artifact@v4
         with:
           name: SaldoLeve-Diagnosticos

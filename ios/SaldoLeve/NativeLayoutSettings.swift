@@ -8,6 +8,7 @@ struct NativeLayoutSettings: View {
     @State private var working = false
     @State private var issue: String?
     @State private var reset = false
+    @State private var initialized = false
     private let embedded: Bool
     init(store: NativeStore, embedded: Bool = false) { self.store = store; self.platform = store.platform; self.embedded = embedded }
     @Environment(\.dismiss) private var dismiss
@@ -29,14 +30,19 @@ struct NativeLayoutSettings: View {
             }.disabled(!platform.canWrite || working).navigationTitle("Layout e personalização").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     if !embedded { ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() }.disabled(working) } }
-                    ToolbarItem(placement: .confirmationAction) { Button("Salvar") { Task { working = true; defer { working = false }; do { try await platform.saveLayout(layout, revision: revision); dismiss() } catch { issue = error.localizedDescription } } }.disabled(!platform.canWrite || working) }
+                    ToolbarItem(placement: .confirmationAction) { Button("Salvar", action: saveChanges).disabled(!platform.canWrite || working) }
                 }
-                .task { await platform.refresh(); layout = store.layout; revision = platform.snapshot.revision }
+                .task { guard !initialized else { return }; await platform.refresh(); guard !Task.isCancelled else { return }; layout = store.layout; revision = platform.snapshot.revision; initialized = true }
                 .onChange(of: store.offline) { offline in guard offline, !working else { return }; layout = store.layout; revision = platform.snapshot.revision; issue = "Sem conexão. Alterações de layout não confirmadas foram descartadas." }
-                .onChange(of: platform.snapshot.revision) { next in guard !working else { return }; layout = store.layout; revision = next; issue = "Layout atualizado com a versão do servidor." }
+                .onChange(of: platform.snapshot.revision) { next in guard !working, next != revision else { return }; layout = store.layout; revision = next; issue = "Layout atualizado com a versão do servidor." }
                 .confirmationDialog("Restaurar o layout padrão?", isPresented: $reset, titleVisibility: .visible) { Button("Restaurar layout") { layout = NativeLayoutPreferences() } } message: { Text("Seus dados, pagamentos, tarefas e notificações permanecem salvos.") }
     }
-    private func destination(_ title: String, icon: String, page: String) -> some View { NavigationLink { NativeLayoutDetail(layout: $layout, page: page, title: title) } label: { Label(title, systemImage: icon) }.accessibilityIdentifier("layout-" + page) }
+    private func saveChanges() {
+        guard platform.canWrite, !working else { return }
+        working = true; issue = nil
+        Task { defer { working = false }; do { try await platform.saveLayout(layout, revision: revision); dismiss() } catch { issue = error.localizedDescription } }
+    }
+    private func destination(_ title: String, icon: String, page: String) -> some View { NavigationLink { NativeLayoutDetail(layout: $layout, page: page, title: title, canSave: platform.canWrite && !working, issue: issue, save: saveChanges) } label: { Label(title, systemImage: icon) }.accessibilityIdentifier("layout-" + page) }
 }
 struct NativeLayoutPreview: View {
     let layout: NativeLayoutPreferences
@@ -53,6 +59,9 @@ struct NativeLayoutDetail: View {
     @Binding var layout: NativeLayoutPreferences
     let page: String
     let title: String
+    let canSave: Bool
+    let issue: String?
+    let save: () -> Void
     var body: some View {
         Form {
             switch page {
@@ -62,7 +71,9 @@ struct NativeLayoutDetail: View {
             case "tasks": tasks
             default: appearanceSettings
             }
-        }.navigationTitle(title).navigationBarTitleDisplayMode(.inline)
+            if let issue { Section { Text(issue).foregroundStyle(.red).font(.footnote) } }
+        }.disabled(!canSave).navigationTitle(title).navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Salvar", action: save).disabled(!canSave).accessibilityIdentifier("layout-save") } }
     }
     private var navigation: some View {
         Section {
@@ -71,7 +82,7 @@ struct NativeLayoutDetail: View {
             Toggle("Cabeçalhos compactos", isOn: $layout.compactHeader)
             Toggle("Busca nas telas financeiras", isOn: $layout.showSearch)
             Toggle("Mostrar mês em aberto", isOn: $layout.showMonth)
-            NavigationLink("Ordem das três abas principais") { NativeLayoutOrder(layout: $layout, dashboard: false) }
+            NavigationLink("Ordem das três abas principais") { NativeLayoutOrder(layout: $layout, dashboard: false, canSave: canSave, save: save) }
             Text("Lançamentos e Compartilhados ficam no menu lateral. Com a barra inferior oculta, use esse menu para navegar.").font(.footnote).foregroundStyle(.secondary)
         }
     }
@@ -80,10 +91,11 @@ struct NativeLayoutDetail: View {
             Toggle("Mostrar Pendências do mês", isOn: Binding(get: { !layout.dashboardHidden.contains("pending") }, set: { shown in
                 layout.dashboardHidden.removeAll { $0 == "pending" }; if !shown { layout.dashboardHidden.append("pending") }
             })).accessibilityIdentifier("dashboard-pending-visibility")
-            NavigationLink("Mostrar, ocultar e ordenar seções") { NativeLayoutOrder(layout: $layout, dashboard: true) }
+            NavigationLink("Outras seções e ordem") { NativeLayoutOrder(layout: $layout, dashboard: true, canSave: canSave, save: save) }.accessibilityIdentifier("layout-dashboard-order")
             Toggle("Incluir despesas já pagas", isOn: $layout.dashboardShowPaid)
             Picker("Quantidade de cards", selection: $layout.dashboardExpenseLimit) { Text("Todos").tag(0); Text("3 despesas").tag(3); Text("5 despesas").tag(5); Text("10 despesas").tag(10) }
             Text("Os cards usam o mesmo layout escolhido em Despesas.").font(.footnote).foregroundStyle(.secondary)
+            Text("Toque em Salvar para confirmar as alterações na sua conta.").font(.footnote).foregroundStyle(.secondary)
         }
     }
     private var expenses: some View {
@@ -136,13 +148,16 @@ struct NativeLayoutDetail: View {
 struct NativeLayoutOrder: View {
     @Binding var layout: NativeLayoutPreferences
     let dashboard: Bool
+    let canSave: Bool
+    let save: () -> Void
     private let names = ["dashboard": "Visão geral", "expenses": "Despesas", "tasks": "Tarefas", "balance": "Renda e saldo", "totals": "Resumos do mês", "pending": "Pendências do mês", "shortcuts": "Atalhos e fechamento"]
     var body: some View {
         List {
             ForEach(dashboard ? layout.dashboardOrder : layout.tabOrder, id: \.self) { key in
-                if dashboard { Toggle(names[key] ?? key, isOn: Binding(get: { !layout.dashboardHidden.contains(key) }, set: { visible in layout.dashboardHidden.removeAll { $0 == key }; if !visible { layout.dashboardHidden.append(key) } })) }
+                if dashboard && key != "pending" { Toggle(names[key] ?? key, isOn: Binding(get: { !layout.dashboardHidden.contains(key) }, set: { visible in layout.dashboardHidden.removeAll { $0 == key }; if !visible { layout.dashboardHidden.append(key) } })) }
                 else { Text(names[key] ?? key) }
             }.onMove { offsets, target in if dashboard { layout.dashboardOrder.move(fromOffsets: offsets, toOffset: target) } else { layout.tabOrder.move(fromOffsets: offsets, toOffset: target) } }
         }.environment(\.editMode, .constant(.active)).navigationTitle(dashboard ? "Seções da visão geral" : "Ordem das abas").navigationBarTitleDisplayMode(.inline)
+            .disabled(!canSave).toolbar { ToolbarItem(placement: .confirmationAction) { Button("Salvar", action: save).disabled(!canSave) } }
     }
 }
