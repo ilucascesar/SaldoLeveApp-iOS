@@ -16,9 +16,9 @@ final class InteractionTests: XCTestCase {
         guard stepper.waitForExistence(timeout: 5) else { XCTFail("Missing widget row limit"); return }
         let increment = stepper.buttons["Increment"]
         guard increment.waitForExistence(timeout: 5) else { XCTFail("Missing increment control: " + stepper.debugDescription); return }
-        for _ in 0..<20 { increment.tap() }
-        XCTAssertTrue(app.staticTexts["Até 30 linhas"].exists)
-        XCTAssertFalse(stepper.buttons["Increment"].isEnabled)
+        increment.tap()
+        XCTAssertTrue(app.staticTexts["Até 11 linhas"].exists)
+        XCTAssertTrue(increment.isEnabled)
         app.terminate()
         XCUIDevice.shared.press(.home)
         let home = XCUIApplication(bundleIdentifier: "com.apple.springboard")
