@@ -126,7 +126,7 @@ final class InteractionTests: XCTestCase {
         XCTAssertTrue(pending.waitForExistence(timeout: 5))
         XCTAssertEqual(pending.value as? String, "1")
         pending.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
-        expectation(for: NSPredicate(format: "value == %@", "0"), evaluatedWith: pending)
+        expectation(for: NSPredicate { _, _ in String(describing: pending.value ?? "") == "0" }, evaluatedWith: pending)
         waitForExpectations(timeout: 5)
     }
     func testBirthdayDefaultsExplainExistingRecordsAndIndividualOverrides() {

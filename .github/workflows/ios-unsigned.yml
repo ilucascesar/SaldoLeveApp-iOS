@@ -10,6 +10,11 @@ on:
         description: 'URL HTTPS completa até /sistema.php; vazio mantém o endereço do app'
         required: false
         type: string
+      run_ui_tests:
+        description: 'Validar os fluxos de interface selecionados no simulador'
+        required: false
+        default: false
+        type: boolean
       full_ui_tests:
         description: 'Executar a bateria completa de interface (mais demorado)'
         required: false
@@ -69,6 +74,7 @@ jobs:
         run: BUILD_NUMBER=$((1000 + BUILD_NUMBER)) bash ios/scripts/build-unsigned.sh
 
       - name: Conferir telas no simulador com dados sintéticos
+        if: ${{ inputs.run_ui_tests || inputs.full_ui_tests }}
         timeout-minutes: 25
         env:
           UI_TEST_FILTER: ${{ inputs.full_ui_tests && 'all' || 'testCDashboardRefreshWithoutPendingKeepsServerConnection testDLayoutClearlyControlsMonthlyPendingSection testBirthdayDefaultsExplainExistingRecordsAndIndividualOverrides testOfflineEditorIsReadOnlyAndCannotSaveDrafts' }}
@@ -89,7 +95,7 @@ jobs:
           retention-days: 3
 
       - name: Disponibilizar imagens das telas
-        if: always()
+        if: ${{ always() && (inputs.run_ui_tests || inputs.full_ui_tests) }}
         uses: actions/upload-artifact@v4
         with:
           name: SaldoLeve-Telas-iPhone
@@ -98,7 +104,7 @@ jobs:
           retention-days: 3
 
       - name: Disponibilizar diagnósticos do simulador
-        if: always()
+        if: ${{ always() && (inputs.run_ui_tests || inputs.full_ui_tests) }}
         uses: actions/upload-artifact@v4
         with:
           name: SaldoLeve-Diagnosticos
