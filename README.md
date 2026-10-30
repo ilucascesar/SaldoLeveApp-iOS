@@ -6,7 +6,7 @@ Repositório público do aplicativo nativo SaldoLeve para iPhone, escrito em Swi
 
 Em Actions → Compilar SaldoLeve iOS, execute Run workflow. Por padrão, o runner xcode-27 compila para iPhone físico ARM64, executa os testes dos modelos e de sincronização e inspeciona o IPA. O artefato SaldoLeve-IPA-AltStore contém SaldoLeve-unsigned.ipa.
 
-Marque run_ui_tests quando precisar validar a interface: a seleção atual cobre atualização da Visão geral, controle de Pendências do mês, padrões de aniversário e bloqueio offline. full_ui_tests executa a bateria completa, incluindo widgets na Tela de Início, contatos e gestos. Quando selecionados, esses testes precisam passar antes da publicação do artefato. Ajuste a seleção ao mudar outros fluxos. A geração comum não recompila o simulador; ela reaproveita o cache do Xcode quando disponível.
+Marque run_ui_tests quando precisar validar a interface: a seleção atual cobre salvar/reabrir a visibilidade de Pendências do mês e o grupo recolhido de filtros de tarefas. full_ui_tests executa a bateria completa, incluindo widgets na Tela de Início, contatos e gestos. Quando selecionados, esses testes precisam passar antes da publicação do artefato. Ajuste a seleção ao mudar outros fluxos. A geração comum não recompila o simulador; ela reaproveita o cache do Xcode quando disponível.
 
 A compilação não recebe senha Apple, certificado ou perfil de provisionamento. Instale o IPA com seu instalador de sideload e sua própria conta Apple. A assinatura gratuita precisa ser renovada. O app exige uma instalação compatível do backend e um login válido nessa instalação.
 
