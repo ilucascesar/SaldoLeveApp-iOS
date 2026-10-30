@@ -2,6 +2,9 @@ import XCTest
 
 @MainActor
 final class InteractionTests: XCTestCase {
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+    }
     func testWidgetSettingsAndHomeScreenMenu() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-preview", "--preview-widgets"]

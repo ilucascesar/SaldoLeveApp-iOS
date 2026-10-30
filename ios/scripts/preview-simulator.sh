@@ -32,7 +32,7 @@ xcrun simctl boot "$DEVICE"
 xcrun simctl bootstatus "$DEVICE" -b
 xcrun simctl status_bar "$DEVICE" override --time '9:41' --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState charged --batteryLevel 100
 xcrun simctl install "$DEVICE" build/Simulator/Build/Products/Debug-iphonesimulator/SaldoLeve.app
-for SCREEN in list drawer editor calendar dashboard expenses notifications menu layout focus widgets columns4 habits birthdays remote search; do
+for SCREEN in ${PREVIEW_SCREENS:-list widgets focus}; do
   xcrun simctl launch --terminate-running-process "$DEVICE" br.com.ilucascesar.saldoleve --ui-preview "--preview-$SCREEN"
   sleep 3
   xcrun simctl io "$DEVICE" screenshot "build/previews/$SCREEN.png"
@@ -48,7 +48,9 @@ xcrun simctl io "$DEVICE" screenshot 'build/previews/widget-open-focus.png'
 xcodebuild -project SaldoLeve.xcodeproj -scheme SaldoLeve -configuration Debug \
   -destination "id=$DEVICE" -derivedDataPath build/Simulator \
   -parallel-testing-enabled NO -only-testing:SaldoLeveUITests \
-  -resultBundlePath build/Interactions.xcresult CODE_SIGNING_ALLOWED=NO test > build/interactions.log 2>&1 || { testStatus=$?; tail -n 150 build/interactions.log; }
+  -test-timeouts-enabled YES -default-test-execution-time-allowance 90 \
+  -maximum-test-execution-time-allowance 120 \
+  -resultBundlePath build/Interactions.xcresult CODE_SIGNING_ALLOWED=NO test 2>&1 | tee build/interactions.log || { testStatus=$?; tail -n 150 build/interactions.log; }
 grep -E 'Test Case|Executed |5000 tasks' build/interactions.log || true
 
 # Export screenshot attachments when supported by this Xcode version.

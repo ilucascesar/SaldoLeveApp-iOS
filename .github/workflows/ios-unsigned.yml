@@ -53,6 +53,7 @@ jobs:
         run: BUILD_NUMBER=$((1000 + BUILD_NUMBER)) bash ios/scripts/build-unsigned.sh
 
       - name: Conferir telas no simulador com dados sintéticos
+        timeout-minutes: 12
         run: bash ios/scripts/preview-simulator.sh
 
       - name: Verificar IPA para iPhone
@@ -84,6 +85,5 @@ jobs:
           name: SaldoLeve-Diagnosticos
           path: |
             ios/build/*.log
-            ios/build/Interactions.xcresult
           if-no-files-found: warn
           retention-days: 3
