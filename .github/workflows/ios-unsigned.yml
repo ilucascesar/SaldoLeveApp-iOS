@@ -81,6 +81,15 @@ jobs:
           PREVIEW_SCREENS: list
         run: bash ios/scripts/preview-simulator.sh
 
+      - name: Preservar compilação se o simulador falhar
+        if: failure()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ios/build/DerivedData
+            ios/build/Simulator
+          key: ios-xcode27-${{ runner.arch }}-${{ hashFiles('ios/**/*.swift', 'ios/**/*.pbxproj', 'ios/**/*.plist') }}
+
       - name: Verificar IPA para iPhone
         run: |
           VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' ios/build/DerivedData/Build/Products/Release-iphoneos/SaldoLeve.app/Info.plist)

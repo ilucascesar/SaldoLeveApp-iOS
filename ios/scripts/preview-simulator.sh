@@ -49,7 +49,8 @@ DEVICE=$(simctl create SaldoLeve-Preview "$DEVICE_TYPE" "$RUNTIME")
 trap 'SL_SIMCTL_TIMEOUT=20 simctl shutdown "$DEVICE" >/dev/null 2>&1 || true; SL_SIMCTL_TIMEOUT=20 simctl delete "$DEVICE" >/dev/null 2>&1 || true' EXIT
 simctl boot "$DEVICE"
 SL_SIMCTL_TIMEOUT=240 simctl bootstatus "$DEVICE" -b
-simctl status_bar "$DEVICE" override --time '9:41' --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState charged --batteryLevel 100
+if [ -z "${UI_TEST_FILTER:-}" ] || [ "$UI_TEST_FILTER" = all ]; then
+SL_SIMCTL_TIMEOUT=20 simctl status_bar "$DEVICE" override --time '9:41' --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState charged --batteryLevel 100 || echo 'Skipping cosmetic status bar override.'
 simctl install "$DEVICE" build/Simulator/Build/Products/Debug-iphonesimulator/SaldoLeve.app
 for SCREEN in ${PREVIEW_SCREENS:-list widgets focus}; do
   simctl launch --terminate-running-process "$DEVICE" br.com.ilucascesar.saldoleve --ui-preview "--preview-$SCREEN"
@@ -63,6 +64,7 @@ sleep 3
 simctl openurl "$DEVICE" 'saldoleve://focus'
 sleep 2
 simctl io "$DEVICE" screenshot 'build/previews/widget-open-focus.png'
+fi
 
 xcodebuild -project SaldoLeve.xcodeproj -scheme SaldoLeve -configuration Debug \
   -destination "id=$DEVICE" -derivedDataPath build/Simulator \
