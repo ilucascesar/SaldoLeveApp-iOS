@@ -2,19 +2,24 @@ import XCTest
 
 @MainActor
 final class InteractionTests: XCTestCase {
+    private var recordingFailure = false
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
     override func record(_ issue: XCTIssue) {
+        guard !recordingFailure else { super.record(issue); return }
+        recordingFailure = true
+        defer { recordingFailure = false }
         let app = XCUIApplication()
-        print("UI_FAILURE_STATE_BEGIN\n" + app.debugDescription + "\nUI_FAILURE_STATE_END")
-        let attachment = XCTAttachment(screenshot: app.screenshot())
+        let target = app.state == .runningForeground ? app : XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        print("UI_FAILURE_STATE_BEGIN\n" + target.debugDescription + "\nUI_FAILURE_STATE_END")
+        let attachment = XCTAttachment(screenshot: target.screenshot())
         attachment.name = "failure-" + name
         attachment.lifetime = .keepAlways
         add(attachment)
         super.record(issue)
     }
-    func testWidgetSettingsAndHomeScreenMenu() {
+    func testAWidgetSettingsAndHomeScreenMenu() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-preview", "--preview-widgets"]
         app.launch()
@@ -31,9 +36,13 @@ final class InteractionTests: XCTestCase {
         app.terminate()
         XCUIDevice.shared.press(.home)
         let home = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let icon = home.icons["SaldoLeve"].firstMatch
-        for _ in 0..<4 { if icon.exists { break }; home.swipeLeft() }
-        XCTAssertTrue(icon.waitForExistence(timeout: 5))
+        var visibleIcon: XCUIElement?
+        for _ in 0..<5 {
+            visibleIcon = home.icons.matching(identifier: "SaldoLeve").allElementsBoundByIndex.first { $0.isHittable }
+            if visibleIcon != nil { break }
+            home.swipeLeft()
+        }
+        guard let icon = visibleIcon else { XCTFail("SaldoLeve icon is not visible on the Home Screen: " + home.debugDescription); return }
         icon.press(forDuration: 1.5)
         let attachment = XCTAttachment(screenshot: home.screenshot())
         attachment.name = "widget-home-menu"
