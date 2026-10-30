@@ -10,6 +10,11 @@ on:
         description: 'URL HTTPS completa até /sistema.php; vazio mantém o endereço do app'
         required: false
         type: string
+      full_ui_tests:
+        description: 'Executar a bateria completa de interface (mais demorado)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -29,6 +34,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      - name: Reaproveitar compilação do Xcode
+        uses: actions/cache@v4
+        with:
+          path: |
+            ios/build/DerivedData
+            ios/build/Simulator
+          key: ios-xcode27-${{ runner.arch }}-${{ hashFiles('ios/**/*.swift', 'ios/**/*.pbxproj', 'ios/**/*.plist') }}
+          restore-keys: ios-xcode27-${{ runner.arch }}-
 
       - name: Aplicar endereço opcional
         env:
@@ -56,6 +70,9 @@ jobs:
 
       - name: Conferir telas no simulador com dados sintéticos
         timeout-minutes: 25
+        env:
+          UI_TEST_FILTER: ${{ inputs.full_ui_tests && 'all' || 'testCDashboardRefreshWithoutPendingKeepsServerConnection testDLayoutClearlyControlsMonthlyPendingSection testBirthdayDefaultsExplainExistingRecordsAndIndividualOverrides testOfflineEditorIsReadOnlyAndCannotSaveDrafts' }}
+          PREVIEW_SCREENS: list
         run: bash ios/scripts/preview-simulator.sh
 
       - name: Verificar IPA para iPhone

@@ -124,7 +124,9 @@ final class InteractionTests: XCTestCase {
         let pending = app.switches["dashboard-pending-visibility"]
         XCTAssertTrue(pending.waitForExistence(timeout: 5))
         XCTAssertEqual(pending.value as? String, "1")
-        pending.tap(); XCTAssertEqual(pending.value as? String, "0")
+        pending.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        expectation(for: NSPredicate(format: "value == %@", "0"), evaluatedWith: pending)
+        waitForExpectations(timeout: 5)
     }
     func testBirthdayDefaultsExplainExistingRecordsAndIndividualOverrides() {
         let app = XCUIApplication()

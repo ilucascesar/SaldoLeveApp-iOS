@@ -4,6 +4,14 @@ IOS_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$IOS_ROOT"
 mkdir -p build/previews
 testStatus=0
+testSelection=(-only-testing:SaldoLeveUITests)
+if [ -n "${UI_TEST_FILTER:-}" ] && [ "$UI_TEST_FILTER" != all ]; then
+  testSelection=()
+  for TEST in $UI_TEST_FILTER; do
+    [[ "$TEST" =~ ^test[A-Za-z0-9]+$ ]] || { echo 'Invalid UI test name'; exit 1; }
+    testSelection+=("-only-testing:SaldoLeveUITests/InteractionTests/$TEST")
+  done
+fi
 simctl() {
   echo "Simulator command: $*" >&2
   python3 - "$@" <<'PY'
@@ -58,7 +66,7 @@ simctl io "$DEVICE" screenshot 'build/previews/widget-open-focus.png'
 
 xcodebuild -project SaldoLeve.xcodeproj -scheme SaldoLeve -configuration Debug \
   -destination "id=$DEVICE" -derivedDataPath build/Simulator \
-  -parallel-testing-enabled NO -only-testing:SaldoLeveUITests \
+  -parallel-testing-enabled NO "${testSelection[@]}" \
   -test-timeouts-enabled YES -default-test-execution-time-allowance 90 \
   -maximum-test-execution-time-allowance 120 \
   -resultBundlePath build/Interactions.xcresult ARCHS="$(uname -m)" ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO test 2>&1 | tee build/interactions.log || { testStatus=$?; tail -n 150 build/interactions.log; }
