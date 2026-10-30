@@ -1,5 +1,11 @@
 import Foundation
 
+enum NativeRequestError {
+    static func isCancellation(_ error: Error) -> Bool {
+        error is CancellationError || (error as? URLError)?.code == .cancelled
+    }
+}
+
 struct NativeFailure: LocalizedError {
     let message: String
     let status: Int

@@ -41,14 +41,16 @@ struct NativeBirthday: Codable, Identifiable, Equatable {
 
 struct NativePlatformSnapshot: Codable {
     var revision = 0
+    var apiVersion = 0
     var config: JSONObject = [:]
     var birthdays: [NativeBirthday] = []
     var serverNow: String?
     init() {}
-    enum CodingKeys: String, CodingKey { case revision, config, birthdays, serverNow }
+    enum CodingKeys: String, CodingKey { case revision, apiVersion, config, birthdays, serverNow }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         revision = try c.decodeIfPresent(Int.self, forKey: .revision) ?? 0
+        apiVersion = try c.decodeIfPresent(Int.self, forKey: .apiVersion) ?? 0
         config = try c.decodeIfPresent(JSONObject.self, forKey: .config) ?? [:]
         birthdays = try c.decodeIfPresent([NativeBirthday].self, forKey: .birthdays) ?? []
         serverNow = try c.decodeIfPresent(String.self, forKey: .serverNow)

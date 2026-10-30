@@ -95,6 +95,47 @@ final class InteractionTests: XCTestCase {
         app.buttons["settings-notifications"].tap()
         XCTAssertTrue(app.navigationBars["Notificações"].waitForExistence(timeout: 8))
     }
+    func testCDashboardRefreshWithoutPendingKeepsServerConnection() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-preview", "--preview-dashboard-refresh"]
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Visão geral"].waitForExistence(timeout: 20))
+        let count = app.staticTexts["finance-read-count"]
+        expectation(for: NSPredicate(format: "label == %@", "Consultas confirmadas: 1"), evaluatedWith: count)
+        waitForExpectations(timeout: 10)
+        XCTAssertFalse(app.staticTexts["Pendências do mês"].exists)
+        app.buttons["test-finance-cancel-caller"].tap()
+        expectation(for: NSPredicate(format: "label == %@", "Consultas confirmadas: 2"), evaluatedWith: count)
+        waitForExpectations(timeout: 10)
+        for expected in 3...4 {
+            app.scrollViews["finance-scroll-dashboard"].swipeDown()
+            expectation(for: NSPredicate(format: "label == %@", "Consultas confirmadas: \(expected)"), evaluatedWith: count)
+            waitForExpectations(timeout: 10)
+            XCTAssertFalse(app.descendants(matching: .any)["server-offline-banner"].exists)
+            XCTAssertFalse(app.buttons["Sincronizar despesas"].exists)
+        }
+    }
+    func testDLayoutClearlyControlsMonthlyPendingSection() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-preview", "--preview-layout"]
+        app.launch()
+        let dashboard = app.buttons["layout-dashboard"]
+        XCTAssertTrue(dashboard.waitForExistence(timeout: 20)); dashboard.tap()
+        let pending = app.switches["dashboard-pending-visibility"]
+        XCTAssertTrue(pending.waitForExistence(timeout: 5))
+        XCTAssertEqual(pending.value as? String, "1")
+        pending.tap(); XCTAssertEqual(pending.value as? String, "0")
+    }
+    func testBirthdayDefaultsExplainExistingRecordsAndIndividualOverrides() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-preview", "--preview-settings"]
+        app.launch()
+        let birthdays = app.buttons["settings-birthdays"]
+        XCTAssertTrue(birthdays.waitForExistence(timeout: 20)); birthdays.tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "todos os aniversariantes já cadastrados")).firstMatch.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["Aplicar a todos"].exists)
+        XCTAssertFalse(app.staticTexts["Padrões de novos aniversários"].exists)
+    }
     func testUnusualInvoiceReviewFormatsMoneyAndCanCancel() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-preview", "--preview-review"]

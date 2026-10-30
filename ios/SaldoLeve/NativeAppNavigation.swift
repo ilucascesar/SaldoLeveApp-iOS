@@ -43,6 +43,7 @@ struct NativeAppShell: View {
                 if flags.contains("--preview-review") { Task { _ = await NativeWarningPresenter.confirm([["field": .string("invoice.totalCents"), "before": .number(100000), "after": .number(10000000), "message": .string("Confira o valor da fatura.")]]) } }
                 if flags.contains("--preview-expenses") || flags.contains("--preview-columns4") { store.section = .expenses }
                 if flags.contains("--preview-dashboard") || flags.contains("--preview-menu") { store.section = .dashboard }
+                if flags.contains("--preview-dashboard-refresh") { store.section = .dashboard; var preferences = store.layout; preferences.dashboardHidden = ["pending", "expenses", "totals", "shortcuts"]; store.layout = preferences }
                 if flags.contains("--preview-menu") { store.menuOpen = true }
                 if flags.contains("--preview-birthdays") { store.openedFinance = .init(kind: "birthdays") }
                 if flags.contains("--preview-remote") { store.openedFinance = .init(kind: "remote") }

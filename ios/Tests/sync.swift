@@ -3,6 +3,8 @@ import Foundation
 @main struct SyncTests {
     static func check(_ condition: @autoclosure () -> Bool, _ message: String) { if !condition() { fatalError(message) } }
     @MainActor static func main() async throws {
+        check(NativeRequestError.isCancellation(CancellationError()) && NativeRequestError.isCancellation(URLError(.cancelled)), "Cancelled reads are not connectivity failures")
+        check(!NativeRequestError.isCancellation(URLError(.notConnectedToInternet)) && !NativeRequestError.isCancellation(URLError(.timedOut)), "Genuine connectivity errors remain errors")
         let base = NativeTask(["id": .string("1"), "listId": .string("1"), "title": .string("Carro"), "body": .string("Notas"), "revision": .number(1), "cycleNumber": .number(1), "status": .string("todo"), "checklist": .array([
             .object(["id": .string("a"), "text": .string("Parcela 1"), "done": .bool(false), "amountCents": .number(100000), "paidAmountCents": .null, "completedCount": .number(0)])])])
         var local = base; local.fields["title"] = .string("Meu carro")

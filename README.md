@@ -8,6 +8,8 @@ Em Actions → Compilar SaldoLeve iOS, execute Run workflow. O runner padrão xc
 
 A compilação não recebe senha Apple, certificado ou perfil de provisionamento. Instale o IPA com seu instalador de sideload e sua própria conta Apple. A assinatura gratuita precisa ser renovada. O app exige uma instalação compatível do backend e um login válido nessa instalação.
 
+Na versão 2.5.4, a Visão geral permite ocultar Pendências do mês sem confundir cancelamentos de consulta com falta de conexão. Os padrões de aniversário podem ser aplicados a todos os cadastros, com personalização individual posterior; envie primeiro a atualização correspondente do backend.
+
 ## Widgets
 
 A partir da versão 2.5.3, todas as preferências do app estão em Configurações, separadas por categorias e com busca. No iOS 27 ou posterior, a galeria também oferece SaldoLeve · Lista ampliada, uma identidade própria para adicionar diretamente o widget vertical, inclusive quando uma instância antiga não troca de tamanho. O conteúdo é uma lista com subtotais de quantidade; é possível escolher até 30 linhas, respeitando o espaço disponível. A compilação verifica a instalação do tamanho vertical na Tela de Início, além de abrir o menu.

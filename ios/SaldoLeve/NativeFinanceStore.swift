@@ -9,20 +9,51 @@ final class NativeFinanceStore: ObservableObject {
     @Published var syncedAt: Date?
     @Published var issue: String?
     @Published var busy = false
+    private var refreshTask: Task<Void, Never>?
+    private var refreshID = UUID()
+    #if DEBUG
+    @Published var fixtureRefreshes = 0
+    #endif
     init(parent: NativeStore) { self.parent = parent }
     var canWrite: Bool { parent.canWrite && !needsSync && !loading && !busy }
     func refresh() async {
-        guard parent.user != nil, !loading else { return }
-        if parent.isPreview { preview(); return }
+        if let refreshTask { await refreshTask.value; return }
+        let id = UUID(); refreshID = id
+        // A SwiftUI refresh gesture may cancel its caller when content changes.
+        // Keep the read alive and share it with other readers; never replay writes.
+        let task = Task { @MainActor [weak self] in guard let self else { return }; await self.readSnapshot(id: id) }
+        refreshTask = task
+        await task.value
+        if refreshID == id { refreshTask = nil }
+    }
+    private func readSnapshot(id: UUID) async {
+        guard id == refreshID, parent.user != nil else { return }
+        if parent.isPreview {
+            #if DEBUG
+            do {
+                if ProcessInfo.processInfo.arguments.contains("--preview-dashboard-refresh") {
+                    try await Task.sleep(nanoseconds: 350_000_000)
+                    try Task.checkCancellation()
+                }
+                guard refreshID == id else { return }
+                preview(); fixtureRefreshes += 1
+            } catch { if !NativeRequestError.isCancellation(error) { parent.noteConnectionFailure(error) } }
+            #endif
+            return
+        }
         guard parent.networkAvailable else { needsSync = true; issue = "Sem conexão com o servidor. Somente consulta."; return }
         let userID = parent.user?.id
-        loading = true; defer { loading = false }
+        loading = true; defer { if refreshID == id { loading = false } }
         do {
             let next = try await parent.api.get(NativeFinanceSnapshot.self, action: "bootstrap")
-            guard parent.user?.id == userID else { return }
+            guard parent.user?.id == userID, refreshID == id else { return }
             snapshot = next; needsSync = false; syncedAt = Date(); issue = nil
+            if parent.offline || parent.needsSync { await parent.refresh() }
             await parent.refreshExpenseReminders()
-        } catch { parent.noteConnectionFailure(error); needsSync = true; issue = error.localizedDescription }
+        } catch {
+            guard !NativeRequestError.isCancellation(error), refreshID == id else { return }
+            parent.noteConnectionFailure(error); needsSync = true; issue = error.localizedDescription
+        }
     }
     @discardableResult
     func save(_ action: String, _ body: JSONObject) async throws -> JSONObject {
@@ -30,6 +61,8 @@ final class NativeFinanceStore: ObservableObject {
         busy = true; parent.working = true; defer { parent.working = false; busy = false }
         do {
             let response = try await parent.api.post(action: action, body: body)
+            // A read started before this confirmed write cannot acknowledge it.
+            cancelRefresh()
             needsSync = true; await refresh()
             return response
         } catch {
@@ -40,7 +73,8 @@ final class NativeFinanceStore: ObservableObject {
             throw NativeFailure(error.localizedDescription + " Sincronize e confira o resultado antes de reenviar.", status: (error as? NativeFailure)?.status ?? 0)
         }
     }
-    func reset() { snapshot = NativeFinanceSnapshot(); needsSync = true; syncedAt = nil; issue = nil }
+    private func cancelRefresh() { refreshID = UUID(); refreshTask?.cancel(); refreshTask = nil; loading = false }
+    func reset() { cancelRefresh(); snapshot = NativeFinanceSnapshot(); needsSync = true; syncedAt = nil; issue = nil }
     private func preview() {
         #if DEBUG
         let month = String(NativeFinanceFormat.day(Date()).prefix(7))

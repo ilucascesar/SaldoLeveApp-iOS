@@ -36,7 +36,7 @@ import SwiftUI
             snapshot = next; loaded = true; issue = nil; applyRemoteLayout()
             parent.reminders.update(parent.snapshot, birthdays: enabled("birthdays") ? next.birthdays : [])
             parent.objectWillChange.send()
-        } catch { parent.noteConnectionFailure(error); issue = "Não foi possível atualizar os novos recursos. Confira a atualização da HostGator. " + error.localizedDescription }
+        } catch { guard !NativeRequestError.isCancellation(error) else { return }; parent.noteConnectionFailure(error); issue = "Não foi possível atualizar os novos recursos. Confira a atualização da HostGator. " + error.localizedDescription }
     }
     private func applyRemoteLayout() {
         let changes = snapshot.config.record("layout")
@@ -47,16 +47,17 @@ import SwiftUI
     }
     private func write(action: String, body: JSONObject) async throws -> JSONObject {
         do { return try await parent.api.post(action: action, body: body) }
-        catch { parent.noteConnectionFailure(error); throw error }
+        catch { if NativeRequestError.isCancellation(error) { parent.needsSync = true }; parent.noteConnectionFailure(error); throw error }
     }
-    func saveConfig(_ config: JSONObject, revision: Int) async throws {
+    func saveConfig(_ config: JSONObject, revision: Int, applyBirthdayDefaults: Bool = false) async throws {
         guard canWrite else { throw NativeFailure("Conecte-se e atualize antes de alterar as configurações.") }
         guard revision == snapshot.revision else { throw NativeFailure("A configuração mudou no servidor. Atualize antes de salvar.", status: 409) }
+        guard !applyBirthdayDefaults || snapshot.apiVersion >= 4 else { throw NativeFailure("Envie primeiro a atualização da HostGator para aplicar os avisos a todos os aniversariantes.") }
         saving = true; defer { saving = false }
         do {
-            _ = try await write(action: "platform_save_config", body: ["revision": .number(Double(revision)), "config": .object(config)])
+            let result = try await write(action: "platform_save_config", body: ["revision": .number(Double(revision)), "config": .object(config), "applyBirthdayDefaults": .bool(applyBirthdayDefaults)])
             await refresh()
-            guard loaded, issue == nil else { throw NativeFailure("A gravação foi enviada. Atualize para conferir a configuração no servidor.") }
+            guard loaded, issue == nil, snapshot.revision == result.integer("revision") else { throw NativeFailure("A gravação foi enviada. Atualize para conferir a configuração no servidor.") }
         } catch { parent.noteConnectionFailure(error); if (error as? NativeFailure)?.status != 499 { await refresh() }; throw error }
     }
     func saveLayout(_ layout: NativeLayoutPreferences, revision: Int) async throws {
@@ -93,6 +94,7 @@ import SwiftUI
     }
     #if DEBUG
     func preview() {
+        snapshot.apiVersion = 4
         var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "America/Sao_Paulo")!
         let now = Date(), tomorrow = c.date(byAdding: .day, value: 1, to: now)!
         var today = NativeBirthday.fresh(), next = NativeBirthday.fresh()

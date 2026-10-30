@@ -36,7 +36,7 @@ struct NativeLayoutSettings: View {
                 .onChange(of: platform.snapshot.revision) { next in guard !working else { return }; layout = store.layout; revision = next; issue = "Layout atualizado com a versão do servidor." }
                 .confirmationDialog("Restaurar o layout padrão?", isPresented: $reset, titleVisibility: .visible) { Button("Restaurar layout") { layout = NativeLayoutPreferences() } } message: { Text("Seus dados, pagamentos, tarefas e notificações permanecem salvos.") }
     }
-    private func destination(_ title: String, icon: String, page: String) -> some View { NavigationLink { NativeLayoutDetail(layout: $layout, page: page, title: title) } label: { Label(title, systemImage: icon) } }
+    private func destination(_ title: String, icon: String, page: String) -> some View { NavigationLink { NativeLayoutDetail(layout: $layout, page: page, title: title) } label: { Label(title, systemImage: icon) }.accessibilityIdentifier("layout-" + page) }
 }
 struct NativeLayoutPreview: View {
     let layout: NativeLayoutPreferences
@@ -77,6 +77,9 @@ struct NativeLayoutDetail: View {
     }
     private var dashboard: some View {
         Section {
+            Toggle("Mostrar Pendências do mês", isOn: Binding(get: { !layout.dashboardHidden.contains("pending") }, set: { shown in
+                layout.dashboardHidden.removeAll { $0 == "pending" }; if !shown { layout.dashboardHidden.append("pending") }
+            })).accessibilityIdentifier("dashboard-pending-visibility")
             NavigationLink("Mostrar, ocultar e ordenar seções") { NativeLayoutOrder(layout: $layout, dashboard: true) }
             Toggle("Incluir despesas já pagas", isOn: $layout.dashboardShowPaid)
             Picker("Quantidade de cards", selection: $layout.dashboardExpenseLimit) { Text("Todos").tag(0); Text("3 despesas").tag(3); Text("5 despesas").tag(5); Text("10 despesas").tag(10) }
@@ -133,7 +136,7 @@ struct NativeLayoutDetail: View {
 struct NativeLayoutOrder: View {
     @Binding var layout: NativeLayoutPreferences
     let dashboard: Bool
-    private let names = ["dashboard": "Visão geral", "expenses": "Despesas", "tasks": "Tarefas", "balance": "Renda e saldo", "totals": "Resumos do mês", "pending": "Pendências", "shortcuts": "Atalhos e fechamento"]
+    private let names = ["dashboard": "Visão geral", "expenses": "Despesas", "tasks": "Tarefas", "balance": "Renda e saldo", "totals": "Resumos do mês", "pending": "Pendências do mês", "shortcuts": "Atalhos e fechamento"]
     var body: some View {
         List {
             ForEach(dashboard ? layout.dashboardOrder : layout.tabOrder, id: \.self) { key in

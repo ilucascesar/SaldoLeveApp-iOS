@@ -42,7 +42,7 @@ struct NativeFinanceScreen: View {
                     else if section == .transactions { transactionContent }
                     else { expenseContent }
                 }.padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 24)
-            }.background(nativeCanvas).navigationTitle(section.rawValue)
+            }.scrollBounceBehavior(.always, axes: .vertical).accessibilityIdentifier("finance-scroll-" + section.key).background(nativeCanvas).navigationTitle(section.rawValue)
                 .navigationBarTitleDisplayMode(layout.compactHeader ? .inline : .large)
                 .financeSearch(enabled: layout.showSearch && section != .dashboard, text: $search)
                 .refreshable { await finance.refresh() }
@@ -77,7 +77,18 @@ struct NativeFinanceScreen: View {
         }
     }
     private var monthHeader: some View {
-        HStack { Label(NativeFinanceFormat.month(data.month), systemImage: "calendar").font(.system(size: 13 * layout.textScale, weight: .semibold)); Spacer(); if finance.loading { ProgressView() } else { Text("Mês em aberto").font(.caption2).foregroundStyle(.secondary) } }.padding(.vertical, 5)
+        VStack {
+            HStack { Label(NativeFinanceFormat.month(data.month), systemImage: "calendar").font(.system(size: 13 * layout.textScale, weight: .semibold)); Spacer(); if finance.loading { ProgressView() } else { Text("Mês em aberto").font(.caption2).foregroundStyle(.secondary) } }
+            #if DEBUG
+            if store.isPreview && ProcessInfo.processInfo.arguments.contains("--preview-dashboard-refresh") {
+                Text("Consultas confirmadas: \(finance.fixtureRefreshes)").accessibilityIdentifier("finance-read-count")
+                Button("Cancelar somente o gesto de atualização") {
+                    let caller = Task { await finance.refresh() }
+                    Task { try? await Task.sleep(nanoseconds: 50_000_000); caller.cancel() }
+                }.accessibilityIdentifier("test-finance-cancel-caller")
+            }
+            #endif
+        }.padding(.vertical, 5)
     }
     @ViewBuilder private var dashboard: some View {
         ForEach(layout.visibleDashboard, id: \.self) { key in
@@ -123,7 +134,7 @@ struct NativeFinanceScreen: View {
             ForEach(data.active.objects("pendingItems").map { NativeRecord(fields: $0.merging(["id": .string($0.text("expenseId"))]) { _, new in new }) }) { item in
                 Button { route = .init(kind: "detail", fields: data.expense(item.id)) } label: { HStack { Text(item.fields.text("name")).foregroundStyle(.primary); Spacer(); Text(NativeFinanceFormat.money(item.fields.decimal("value"))).foregroundStyle(.orange).fontWeight(.semibold) }.font(.system(size: 14 * layout.textScale)) }.padding(.vertical, 3)
             }
-        }.padding(18).background(nativePaper, in: RoundedRectangle(cornerRadius: layout.cardRadius))
+        }.padding(18).background(nativePaper, in: RoundedRectangle(cornerRadius: layout.cardRadius)).accessibilityIdentifier("dashboard-pending-section")
     }
     private var shortcuts: some View {
         VStack(spacing: 14) {

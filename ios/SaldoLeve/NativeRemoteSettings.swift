@@ -67,10 +67,10 @@ enum NativeRemoteSettingsPage: Equatable { case menus, features, birthdays }
                 }
                 }
                 if page == .birthdays {
-                Section("Padrões de novos aniversários") {
-                    TextField("Grupo padrão", text: string("birthdayDefaults", "group", fallback: "Amigos"))
+                Section("Avisos para todos os aniversariantes") {
+                    Text("Ao salvar, o horário e os avisos abaixo serão aplicados a todos os aniversariantes já cadastrados e aos próximos. Depois, você pode personalizar uma pessoa separadamente.").font(.footnote).foregroundStyle(.secondary)
                     TextField("Horário (HH:mm)", text: string("birthdayDefaults", "time", fallback: "09:00")).keyboardType(.numbersAndPunctuation)
-                    Toggle("Preparar avisos por padrão", isOn: flag("birthdayDefaults", "enabled"))
+                    Toggle("Ativar avisos para todos", isOn: flag("birthdayDefaults", "enabled"))
                     ForEach([0, 1, 2, 3, 7, 14, 30], id: \.self) { offset in
                         Toggle(offset == 0 ? "Avisar no dia" : "Avisar \(offset) dia(s) antes", isOn: Binding(get: { config.record("birthdayDefaults")["daysBefore"]?.array.contains(.number(Double(offset))) ?? (offset == 0) }, set: { enabled in
                             var values = config.record("birthdayDefaults"), offsets = Set(values["daysBefore"]?.array.compactMap { $0.number.map(Int.init) } ?? [0])
@@ -78,12 +78,13 @@ enum NativeRemoteSettingsPage: Equatable { case menus, features, birthdays }
                         }))
                     }
                 }
+                Section("Novos cadastros") { TextField("Grupo para novos aniversariantes", text: string("birthdayDefaults", "group", fallback: "Amigos")) }
                 }
                 if let issue = issue ?? platform.issue { Section { Text(issue).font(.footnote).foregroundStyle(.secondary) } }
             }.disabled(!platform.canWrite || working).navigationTitle(title).navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     if !embedded { ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() }.disabled(working) } }
-                    ToolbarItem(placement: .confirmationAction) { Button("Salvar") { Task { working = true; defer { working = false }; do { try await platform.saveConfig(config, revision: revision); dismiss() } catch { issue = error.localizedDescription } } }.bold().disabled(!platform.canWrite || working) }
+                    ToolbarItem(placement: .confirmationAction) { Button(page == .birthdays ? "Aplicar a todos" : "Salvar") { Task { working = true; defer { working = false }; do { try await platform.saveConfig(config, revision: revision, applyBirthdayDefaults: page == .birthdays); dismiss() } catch { issue = error.localizedDescription } } }.bold().disabled(!platform.canWrite || working) }
                 }
                 .task { await platform.refresh(); config = platform.snapshot.config; revision = platform.snapshot.revision }
                 .onChange(of: store.offline) { offline in guard offline, !working else { return }; config = platform.snapshot.config; revision = platform.snapshot.revision; issue = "Sem conexão. Alterações não confirmadas foram descartadas." }

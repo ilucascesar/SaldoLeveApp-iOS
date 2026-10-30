@@ -171,6 +171,7 @@ final class NativeStore: ObservableObject {
             persist()
             await refreshExpenseReminders(); await platform.refresh()
         } catch {
+            if NativeRequestError.isCancellation(error) { return }
             offline = true; needsSync = true
             if let e = error as? NativeFailure, [401, 428].contains(e.status) {
                 user = nil; api.clearSession(); reminders.clear(disable: false)
@@ -203,6 +204,7 @@ final class NativeStore: ObservableObject {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             return response
         } catch {
+            if NativeRequestError.isCancellation(error) { needsSync = true }
             if let e = error as? NativeFailure, [401, 419, 428].contains(e.status) {
                 user = nil; api.clearSession(); reminders.clear(disable: false)
             }
@@ -211,6 +213,7 @@ final class NativeStore: ObservableObject {
         }
     }
     func noteConnectionFailure(_ error: Error) {
+        guard !NativeRequestError.isCancellation(error) else { return }
         if error is URLError || !networkAvailable || (error as? NativeFailure).map({ $0.status == 0 || $0.status >= 500 }) == true {
             offline = true; needsSync = true; finance.needsSync = true
         }
@@ -329,6 +332,7 @@ final class NativeStore: ObservableObject {
 extension NativeStore {
     func loadPreview() {
         #if DEBUG
+        layout = NativeLayoutPreferences(); section = .tasks
         let first = NativeCategory(["id": .string("1"), "name": .string("Pessoal"), "color": .string("#1f6feb"), "folder": .string(""), "ownerId": .string("preview"), "archived": .bool(false), "canEdit": .bool(true), "members": .array([])])
         let second = NativeCategory(["id": .string("2"), "name": .string("Trabalho"), "color": .string("#159a68"), "folder": .string("Projetos"), "ownerId": .string("preview"), "archived": .bool(false), "canEdit": .bool(true), "members": .array([])])
         var data = NativeSnapshot(); data.configured = true; data.lists = [first, second]
