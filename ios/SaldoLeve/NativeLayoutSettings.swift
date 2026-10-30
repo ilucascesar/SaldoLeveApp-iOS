@@ -121,9 +121,10 @@ struct NativeLayoutDetail: View {
     }
     private var tasks: some View {
         Section {
-            Picker("Filtro ao abrir", selection: $layout.taskDefaultScope) { Text("Hoje").tag("today"); Text("Atrasadas").tag("overdue"); Text("Próximos 7 dias").tag("next"); Text("Tudo").tag("all") }
+            Text("A aba inicial de tarefas é sempre Tudo.").font(.footnote).foregroundStyle(.secondary)
+            NativeTaskFilterControls(sort: $layout.taskDefaultSort, filter: $layout.taskDateFilter)
             Picker("Visualização inicial", selection: $layout.taskDefaultView) { Text("Lista").tag("list"); Text("Calendário").tag("calendar"); Text("Hábitos").tag("habits") }
-            Toggle("Atalhos Hoje, Atrasadas e Próximas", isOn: $layout.taskShowSummaries)
+            Toggle("Atalhos Tudo, Hoje, Atrasadas e Próximas", isOn: $layout.taskShowSummaries)
             Toggle("Agrupar tarefas por prazo", isOn: $layout.taskGroupByDate)
             Toggle("Mostrar categoria nas tarefas", isOn: $layout.taskShowCategory)
             Toggle("Mostrar valores", isOn: $layout.taskShowAmounts)

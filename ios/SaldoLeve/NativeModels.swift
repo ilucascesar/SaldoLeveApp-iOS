@@ -211,7 +211,55 @@ extension NativeTask {
 
 enum NativeTaskSort: String, CaseIterable, Identifiable {
     case due = "Prazo", updated = "Atualização", title = "Título", manual = "Ordem manual"
+    case created = "Adicionadas recentemente", oldest = "Adicionadas há mais tempo", titleDescending = "Título Z–A"
     var id: String { rawValue }
+    var label: String { switch self { case .due: return "Prazo mais próximo"; case .updated: return "Alteradas recentemente"; case .title: return "Ordem alfabética A–Z"; case .titleDescending: return "Ordem alfabética Z–A"; default: return rawValue } }
+}
+
+struct NativeTaskDateFilter: Hashable {
+    static let periods = ["all", "today", "week", "month", "last7", "last30", "custom"]
+    static let fields = ["due", "created", "updated"]
+    static let labels = ["all":"Todo o período", "today":"Hoje", "week":"Esta semana", "month":"Este mês", "last7":"Últimos 7 dias", "last30":"Últimos 30 dias", "custom":"Período personalizado", "due":"Prazo da tarefa ou subtarefa", "created":"Data em que foi adicionada", "updated":"Última alteração"]
+    var period = "all"
+    var field = "due"
+    var from = ""
+    var to = ""
+    static func dayString(_ date: Date, calendar: Calendar = .current) -> String {
+        let c = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", c.year!, c.month!, c.day!)
+    }
+    static func date(_ value: String, calendar: Calendar = .current) -> Date? {
+        let parts = value.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3, value.count == 10, let date = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])), dayString(date, calendar: calendar) == value else { return nil }
+        return date
+    }
+    var valid: Bool { period != "custom" || (Self.date(from) != nil && Self.date(to) != nil && from <= to) }
+    func interval(now: Date, calendar: Calendar) -> DateInterval? {
+        let today = calendar.startOfDay(for: now)
+        func days(_ offset: Int) -> Date { calendar.date(byAdding: .day, value: offset, to: today)! }
+        switch period {
+        case "today": return DateInterval(start: today, end: days(1))
+        case "week": return calendar.dateInterval(of: .weekOfYear, for: now)
+        case "month": return calendar.dateInterval(of: .month, for: now)
+        case "last7": return DateInterval(start: days(-6), end: days(1))
+        case "last30": return DateInterval(start: days(-29), end: days(1))
+        case "custom":
+            guard let start = Self.date(from, calendar: calendar), let last = Self.date(to, calendar: calendar), start <= last, let end = calendar.date(byAdding: .day, value: 1, to: last) else { return nil }
+            return DateInterval(start: start, end: end)
+        default: return nil
+        }
+    }
+    func matches(_ task: NativeTask, now: Date = Date(), calendar: Calendar = .current) -> Bool {
+        if period == "all" { return true }
+        guard let range = interval(now: now, calendar: calendar) else { return false }
+        let dates: [Date]
+        switch field {
+        case "created": dates = [NativeDate.parse(task.fields.text("createdAt"))].compactMap { $0 }
+        case "updated": dates = [NativeDate.parse(task.fields.text("updatedAt"))].compactMap { $0 }
+        default: dates = task.dates.isEmpty ? [task.listDate].compactMap { $0 } : task.dates
+        }
+        return dates.contains { $0 >= range.start && $0 < range.end }
+    }
 }
 enum NativeDailyQuery {
     static func select(_ snapshot: NativeSnapshot, state: String, days: Int = 7, now: Date = Date()) -> [NativeTask] {
@@ -240,7 +288,7 @@ struct NativeTaskGroup: Identifiable {
     var items: [NativeTask]
 }
 enum NativeTaskQuery {
-    static func select(_ snapshot: NativeSnapshot, scope: TaskScope, categoryID: String = "", tag: String = "", search: String = "", sort: NativeTaskSort = .due, userID: String = "", includeDone: Bool = false, now: Date = Date(), calendar: Calendar = .current, day: Date? = nil) -> [NativeTask] {
+    static func select(_ snapshot: NativeSnapshot, scope: TaskScope, categoryID: String = "", tag: String = "", search: String = "", sort: NativeTaskSort = .due, userID: String = "", includeDone: Bool = false, now: Date = Date(), calendar: Calendar = .current, day: Date? = nil, dateFilter: NativeTaskDateFilter = .init()) -> [NativeTask] {
         let categories = Dictionary(snapshot.lists.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
         let visible = snapshot.items.filter { task in
             guard let category = categories[task.categoryID], categoryID.isEmpty || task.categoryID == categoryID,
@@ -250,6 +298,7 @@ enum NativeTaskQuery {
                 guard haystack.localizedStandardContains(search) else { return false }
             }
             if let day, !NativeTaskIndex.dates(task).contains(where: { calendar.isDate($0, inSameDayAs: day) }) { return false }
+            guard dateFilter.matches(task, now: now, calendar: calendar) else { return false }
             if scope == .archived { return task.status != "trashed" && (task.status == "archived" || category.archived) }
             if scope == .trash { return task.status == "trashed" }
             guard !category.archived else { return false }
@@ -264,11 +313,21 @@ enum NativeTaskQuery {
                 return a.1 == b.1 ? (Int(a.0.id) ?? Int.max) < (Int(b.0.id) ?? Int.max) : a.1 < b.1
             }.map { $0.0 }
         }
+        if [.created, .oldest, .updated].contains(sort) {
+            let key = sort == .updated ? "updatedAt" : "createdAt"
+            return visible.map { ($0, NativeDate.parse($0.fields.text(key))) }.sorted { a, b in
+                if a.0.fields.flag("pinned") != b.0.fields.flag("pinned") { return a.0.fields.flag("pinned") }
+                if a.1 != b.1 { guard let first = a.1 else { return false }; guard let second = b.1 else { return true }; return sort == .oldest ? first < second : first > second }
+                return (Int(a.0.id) ?? Int.max) < (Int(b.0.id) ?? Int.max)
+            }.map { $0.0 }
+        }
         return visible.sorted { a, b in
             if a.fields.flag("pinned") != b.fields.flag("pinned") { return a.fields.flag("pinned") }
             switch sort {
             case .due: if a.listDate != b.listDate { return (a.listDate ?? .distantFuture) < (b.listDate ?? .distantFuture) }
             case .title: if a.title != b.title { return a.title.localizedStandardCompare(b.title) == .orderedAscending }
+            case .titleDescending: if a.title != b.title { return a.title.localizedStandardCompare(b.title) == .orderedDescending }
+            case .created, .oldest: break
             case .updated: if a.fields.text("updatedAt") != b.fields.text("updatedAt") { return a.fields.text("updatedAt") > b.fields.text("updatedAt") }
             case .manual: if a.fields.integer("sortOrder") != b.fields.integer("sortOrder") { return a.fields.integer("sortOrder") < b.fields.integer("sortOrder") }
             }

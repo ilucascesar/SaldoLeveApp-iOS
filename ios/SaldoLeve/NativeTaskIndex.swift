@@ -60,6 +60,7 @@ struct NativeTaskRequest: Hashable {
     var groupDates: Bool
     var showDone: Bool
     var userID: String
+    var dateFilter = NativeTaskDateFilter()
 }
 struct NativeTaskProjection {
     var items: [NativeTask] = []
@@ -69,11 +70,12 @@ struct NativeTaskProjection {
         let calendar = request.page == "calendar"
         let scope = calendar ? TaskScope.all : TaskScope(key: request.scope)
         let sort = NativeTaskSort(rawValue: request.sort) ?? .due
-        func select(_ includeDone: Bool) -> [NativeTask] { NativeTaskQuery.select(snapshot, scope: scope, categoryID: request.category, tag: request.tag, search: request.search, sort: sort, userID: request.userID, includeDone: includeDone, day: request.day) }
+        func select(_ includeDone: Bool) -> [NativeTask] { NativeTaskQuery.select(snapshot, scope: scope, categoryID: request.category, tag: request.tag, search: request.search, sort: sort, userID: request.userID, includeDone: includeDone, day: request.day, dateFilter: request.dateFilter) }
         items = select(calendar)
         groups = request.groupDates ? NativeTaskQuery.groups(items, scope: calendar ? .done : scope, sort: sort) : [.init(id: "all", title: "", items: items)]
         if request.showDone && !calendar && ![.done, .trash, .archived].contains(scope) {
-            let done = select(true).filter(\.isDone).sorted { $0.fields.text("completedAt") > $1.fields.text("completedAt") }
+            let selectedDone = select(true).filter(\.isDone)
+            let done = sort == .due ? selectedDone.sorted { $0.fields.text("completedAt") > $1.fields.text("completedAt") } : selectedDone
             if !done.isEmpty { groups.append(.init(id: "done", title: "Concluídas", items: done)) }
         }
     }

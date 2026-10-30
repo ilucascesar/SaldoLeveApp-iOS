@@ -10,7 +10,7 @@ Marque run_ui_tests quando precisar validar a interface: a seleção atual cobre
 
 A compilação não recebe senha Apple, certificado ou perfil de provisionamento. Instale o IPA com seu instalador de sideload e sua própria conta Apple. A assinatura gratuita precisa ser renovada. O app exige uma instalação compatível do backend e um login válido nessa instalação.
 
-Na versão 2.5.5, o layout tem um único controle para Pendências do mês e botão Salvar nas páginas internas. Voltar de uma página preserva as alterações ainda em edição. O menu de tarefas mantém Tudo, Hoje e Atrasadas fixos, com os outros filtros em Mais filtros. O marcador [verify-ui] no commit executa somente os dois testes relacionados a esta correção.
+Na versão 2.5.6, tarefas oferecem ordenação por prazo, cadastro recente ou antigo, alteração, alfabeto A–Z/Z–A e ordem manual. O período pode considerar prazo, cadastro ou alteração, com intervalos prontos ou datas personalizadas. Use como padrão salva a escolha na conta. Tudo é o primeiro atalho e a aba inicial. Envie primeiro o backend 2.5.6 para persistir as novas preferências. A geração padrão valida os modelos e o IPA, sem executar o simulador.
 
 ## Widgets
 

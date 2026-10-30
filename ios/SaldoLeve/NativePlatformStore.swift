@@ -67,6 +67,7 @@ import SwiftUI
         } catch { parent.noteConnectionFailure(error); if (error as? NativeFailure)?.status != 499 { await refresh() }; throw error }
     }
     func saveLayout(_ layout: NativeLayoutPreferences, revision: Int) async throws {
+        guard snapshot.apiVersion >= 5 else { throw NativeFailure("Envie primeiro o pacote HostGator 2.5.6 para salvar os novos padrões de tarefas.", status: 422) }
         var config = snapshot.config
         let bytes = try JSONEncoder().encode(layout)
         config["layout"] = .object(try JSONDecoder().decode(JSONObject.self, from: bytes))
@@ -100,7 +101,7 @@ import SwiftUI
     }
     #if DEBUG
     func preview() {
-        snapshot.apiVersion = 4
+        snapshot.apiVersion = 5
         var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "America/Sao_Paulo")!
         let now = Date(), tomorrow = c.date(byAdding: .day, value: 1, to: now)!
         var today = NativeBirthday.fresh(), next = NativeBirthday.fresh()

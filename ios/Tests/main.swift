@@ -91,6 +91,29 @@ check(table.count == 2 && table[0].pendingAmount == 123456 && table[1].moneyMode
 do { _ = try NativeTableImport.parse("Internet\tabc\t31/02/2027", categoryID: "1"); fatalError("Malformed table was accepted") } catch { }
 print("Web parity: filters, archive, groups, quick capture, autosave rebase and table import tests passed.")
 
+var filterData = NativeSnapshot()
+filterData.lists = [NativeCategory(["id": .string("1"), "name": .string("Teste"), "archived": .bool(false)])]
+func filterTask(_ id: String, _ name: String, _ created: String, _ due: String?) -> NativeTask {
+    var value = sample(id, due); value.fields["title"] = .string(name); value.fields["createdAt"] = .string(created); value.fields["updatedAt"] = .string(created); return value
+}
+filterData.items = [filterTask("901", "Zebra", "2027-01-01T10:00:00Z", "2027-01-10T23:59:59Z"), filterTask("902", "Arvore", "2027-01-09T10:00:00Z", "2027-01-11T00:00:00Z"), filterTask("903", "Casa", "2027-01-05T10:00:00Z", nil)]
+check(NativeTaskQuery.select(filterData, scope: .all, sort: .created).map(\.id) == ["902","903","901"], "Newest tasks sort by creation rather than last update")
+check(NativeTaskQuery.select(filterData, scope: .all, sort: .oldest).map(\.id) == ["901","903","902"], "Oldest creation dates come first")
+check(NativeTaskQuery.select(filterData, scope: .all, sort: .title).map(\.id) == ["902","903","901"] && NativeTaskQuery.select(filterData, scope: .all, sort: .titleDescending).map(\.id) == ["901","903","902"], "Alphabetical task ordering works in both directions")
+let exactDay = NativeTaskDateFilter(period: "custom", field: "due", from: "2027-01-10", to: "2027-01-10")
+check(NativeTaskQuery.select(filterData, scope: .all, now: reference, calendar: cal, dateFilter: exactDay).map(\.id) == ["901"], "Custom periods include the last second of the final day and exclude undated tasks")
+let addedDays = NativeTaskDateFilter(period: "custom", field: "created", from: "2027-01-09", to: "2027-01-10")
+check(NativeTaskQuery.select(filterData, scope: .all, now: reference, calendar: cal, dateFilter: addedDays).map(\.id) == ["902"], "Creation-date periods are independent from task deadlines")
+check(NativeTaskDateFilter(period: "last7", field: "created").matches(filterData.items[2], now: reference, calendar: cal), "Rolling periods use the current date")
+check(!NativeTaskDateFilter(period: "custom", from: "2027-01-11", to: "2027-01-10").valid && NativeTaskDateFilter.date("2027-02-30") == nil, "Reversed ranges and invalid dates cannot become defaults")
+let filterDefaults = UserDefaults(suiteName: "SaldoLeve.TaskFilterTests")!
+filterDefaults.removePersistentDomain(forName: "SaldoLeve.TaskFilterTests")
+var filterLayout = NativeLayoutPreferences(); filterLayout.taskDefaultScope = "today"; filterLayout.taskDefaultSort = NativeTaskSort.created.rawValue; filterLayout.taskDateFilter = addedDays; filterLayout.save(filterDefaults)
+let reopenedFilters = NativeLayoutPreferences.read(filterDefaults)
+check(reopenedFilters.taskDefaultSort == NativeTaskSort.created.rawValue && reopenedFilters.taskDateFilter == addedDays && reopenedFilters.taskDefaultScope == "all", "Saved ordering and period survive reopening while the initial tab stays Everything")
+filterDefaults.removePersistentDomain(forName: "SaldoLeve.TaskFilterTests")
+print("Task filters: newest/oldest, alphabetical order, inclusive periods, date-field choice, rolling dates and persisted defaults passed.")
+
 var notificationPreferences = NativeNotificationPreferences()
 let night = NativeDate.parse("2027-01-15T02:30:00Z")! // 23:30 in Brasília
 check(notificationPreferences.deliveryDate(night) == NativeDate.parse("2027-01-15T09:00:00Z"), "Quiet time crosses midnight and postpones to 06:00 Brasília")

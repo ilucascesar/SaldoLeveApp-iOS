@@ -38,6 +38,15 @@ struct NativeLayoutPreferences: Codable, Equatable {
     var taskGroupByDate = true
     var taskDefaultScope = "all"
     var taskDefaultView = "list"
+    var taskDefaultSort = "Prazo"
+    var taskDefaultPeriod = "all"
+    var taskDefaultPeriodField = "due"
+    var taskDefaultFrom = ""
+    var taskDefaultTo = ""
+    var taskDateFilter: NativeTaskDateFilter {
+        get { NativeTaskDateFilter(period: taskDefaultPeriod, field: taskDefaultPeriodField, from: taskDefaultFrom, to: taskDefaultTo) }
+        set { taskDefaultPeriod = newValue.period; taskDefaultPeriodField = newValue.field; taskDefaultFrom = newValue.from; taskDefaultTo = newValue.to }
+    }
 
     var spacing: Double { density == "compact" ? 8 : density == "spacious" ? 20 : 14 }
     var rowPadding: Double { density == "compact" ? 2 : density == "spacious" ? 10 : 5 }
@@ -62,7 +71,11 @@ struct NativeLayoutPreferences: Codable, Equatable {
         var seen = Set<String>(); expenseCustomOrder = expenseCustomOrder.filter { !$0.isEmpty && $0.count <= 30 && seen.insert($0).inserted }
         if ![0, 3, 5, 10].contains(dashboardExpenseLimit) { dashboardExpenseLimit = 0 }
         pinnedExpenses = Array(Set(pinnedExpenses.filter { !$0.isEmpty && $0.count <= 30 })).sorted()
-        if !["all", "today", "tomorrow", "next", "overdue", "assigned", "done"].contains(taskDefaultScope) { taskDefaultScope = "all" }
+        taskDefaultScope = "all"
+        if NativeTaskSort(rawValue: taskDefaultSort) == nil { taskDefaultSort = "Prazo" }
+        if !NativeTaskDateFilter.periods.contains(taskDefaultPeriod) { taskDefaultPeriod = "all" }
+        if !NativeTaskDateFilter.fields.contains(taskDefaultPeriodField) { taskDefaultPeriodField = "due" }
+        if !taskDateFilter.valid { taskDefaultPeriod = "all"; taskDefaultFrom = ""; taskDefaultTo = "" }
         if !["list", "calendar", "habits"].contains(taskDefaultView) { taskDefaultView = "list" }
     }
     static func read(_ defaults: UserDefaults = .standard) -> Self {

@@ -14,6 +14,11 @@ struct NativeTaskList: View {
     @State private var scope: TaskScope = .all
     @State private var page: NativeWorkspacePage = .list
     @State private var sort: NativeTaskSort = .due
+    @State private var dateFilter = NativeTaskDateFilter()
+    @State private var filtersOpen = false
+    @State private var savingDefaults = false
+    @State private var defaultsSaved = false
+    @State private var filterIssue: String?
     @State private var tag = ""
     @State private var search = ""
     @State private var searching = false
@@ -40,14 +45,14 @@ struct NativeTaskList: View {
     private var currentCategory: NativeCategory? { store.snapshot.lists.first { $0.id == category } }
     private var heading: String { page == .habits ? "Meus hábitos" : page == .calendar ? (currentCategory?.name ?? "Calendário") : currentCategory?.name ?? (tag.isEmpty ? (scope == .all ? store.platform.text("tasksHeading", fallback: scope.rawValue) : scope.rawValue) : "#" + tag) }
     private var canAdd: Bool { store.user != nil && store.networkAvailable && !store.offline && !store.needsSync && (scope != .trash && !store.editableCategories.isEmpty && (currentCategory == nil || currentCategory?.canEdit == true)) }
-    private func query(includeDone: Bool = false) -> [NativeTask] { NativeTaskQuery.select(store.snapshot, scope: page == .calendar ? .all : scope, categoryID: category, tag: tag, search: search, sort: sort, userID: store.user?.id ?? "", includeDone: includeDone) }
+    private func query(includeDone: Bool = false) -> [NativeTask] { NativeTaskQuery.select(store.snapshot, scope: page == .calendar ? .all : scope, categoryID: category, tag: tag, search: search, sort: sort, userID: store.user?.id ?? "", includeDone: includeDone, dateFilter: dateFilter) }
     @State private var projection = NativeTaskProjection()
     @State private var loadedRequest: NativeTaskRequest?
     @State private var projecting = false
     private var items: [NativeTask] { loadedRequest?.revision == store.taskIndex.revision ? projection.items : [] }
     private var groups: [NativeTaskGroup] { loadedRequest?.revision == store.taskIndex.revision ? projection.groups : [] }
     private var request: NativeTaskRequest {
-        NativeTaskRequest(revision: store.taskIndex.revision, scope: scope.key, category: category, tag: tag, search: search, sort: sort.rawValue, page: page == .calendar ? "calendar" : page == .habits ? "habits" : "list", day: page == .calendar ? Calendar.current.startOfDay(for: calendarDay) : nil, groupDates: store.layout.taskGroupByDate, showDone: store.layout.taskShowCompleted, userID: store.user?.id ?? "")
+        NativeTaskRequest(revision: store.taskIndex.revision, scope: scope.key, category: category, tag: tag, search: search, sort: sort.rawValue, page: page == .calendar ? "calendar" : page == .habits ? "habits" : "list", day: page == .calendar ? Calendar.current.startOfDay(for: calendarDay) : nil, groupDates: store.layout.taskGroupByDate, showDone: store.layout.taskShowCompleted, userID: store.user?.id ?? "", dateFilter: dateFilter)
     }
     var body: some View {
         NavigationStack {
@@ -69,6 +74,7 @@ struct NativeTaskList: View {
             }
             .safeAreaInset(edge: .bottom, spacing: 0) { if selecting { bulkBar } }
             .sheet(isPresented: $profile) { NativeProfileView(store: store) }
+            .sheet(isPresented: $filtersOpen) { NativeTaskFilterEditor(sort: Binding(get: { sort.rawValue }, set: { sort = NativeTaskSort(rawValue: $0) ?? .due }), filter: $dateFilter, canSave: store.platform.canWrite, saving: savingDefaults, saved: defaultsSaved, issue: filterIssue, save: saveTaskDefaults) }
             .sheet(isPresented: $categoryEditor) { NativeCategoryEditor(store: store, original: editingCategory) }
             .sheet(isPresented: $history) { NativeGlobalHistoryView(store: store, categoryID: category) }
             .sheet(isPresented: $tools) { NativeCollectionTools(store: store, categoryID: category, items: query(includeDone: true)) }
@@ -78,7 +84,7 @@ struct NativeTaskList: View {
             .confirmationDialog("Mover as selecionadas para a lixeira?", isPresented: $bulkTrash, titleVisibility: .visible) { Button("Mover para a lixeira", role: .destructive) { bulk("trash") } }
             .alert("Salvar filtro", isPresented: $savingFilter) { TextField("Nome do filtro", text: $filterName); Button("Cancelar", role: .cancel) {}; Button("Salvar") { saveFilter() } } message: { Text("Guarda categoria, busca, etiqueta e filtro, também no site.") }
             .onAppear {
-                if !initialized { scope = TaskScope(key: store.layout.taskDefaultScope); page = store.layout.taskDefaultView == "calendar" ? .calendar : store.layout.taskDefaultView == "habits" ? .habits : .list; initialized = true }
+                if !initialized { scope = .all; sort = NativeTaskSort(rawValue: store.layout.taskDefaultSort) ?? .due; dateFilter = store.layout.taskDateFilter; page = store.layout.taskDefaultView == "calendar" ? .calendar : store.layout.taskDefaultView == "habits" ? .habits : .list; initialized = true }
                 if let categoryID { category = categoryID }; if let day { calendarDay = day; page = .calendar }
                 consumeNavigation()
                 #if DEBUG
@@ -97,6 +103,10 @@ struct NativeTaskList: View {
             }
             .onChange(of: store.taskCategoryRequest) { _ in consumeNavigation() }
             .onChange(of: store.taskScopeRequest) { _ in consumeNavigation() }
+            .onChange(of: store.layout.taskDefaultSort) { sort = NativeTaskSort(rawValue: $0) ?? .due }
+            .onChange(of: store.layout.taskDateFilter) { dateFilter = $0 }
+            .onChange(of: sort) { _ in defaultsSaved = false; filterIssue = nil }
+            .onChange(of: dateFilter) { _ in defaultsSaved = false; filterIssue = nil }
             .onChange(of: store.taskDrawerRequested) { requested in if requested { quickFocused = false; searchFocused = false; withAnimation(.easeOut(duration: 0.18)) { drawer = true }; store.taskDrawerRequested = false } }
         }
     }
@@ -106,8 +116,9 @@ struct NativeTaskList: View {
             Text(heading).font(.system(size: 21, weight: .bold)).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
             if let category = currentCategory { Image(systemName: category.fields.objects("members").isEmpty ? "lock" : "person.2").font(.system(size: 12)).foregroundStyle(.secondary) }
             Button { withAnimation { searching.toggle() }; searchFocused = searching; if !searching { search = "" } } label: { Image(systemName: "magnifyingglass").font(.system(size: 20)).frame(width: 44, height: 44) }.accessibilityLabel("Buscar")
+            Button { filtersOpen = true } label: { Image(systemName: "line.3.horizontal.decrease.circle").font(.system(size: 21)).foregroundStyle(dateFilter.period == "all" && sort == .due ? Color.primary : nativeBlue).frame(width: 44, height: 44) }.accessibilityLabel("Filtros e ordenação")
             Menu {
-                Picker("Ordenar por", selection: $sort) { ForEach(NativeTaskSort.allCases) { Text($0.rawValue).tag($0) } }
+                Button("Filtros e ordenação") { filtersOpen = true }
                 Button { selecting.toggle(); selected.removeAll() } label: { Label(selecting ? "Cancelar seleção" : "Selecionar tarefas", systemImage: "checkmark.circle") }
                 Button { Task { await store.refresh() } } label: { Label("Atualizar", systemImage: "arrow.clockwise") }
                 Button { filterName = ""; savingFilter = true } label: { Label("Salvar filtro atual", systemImage: "bookmark") }
@@ -133,6 +144,8 @@ struct NativeTaskList: View {
         List {
             Section {
                 if projecting { ProgressView("Organizando tarefas…").font(.caption) }; if page == .list && store.layout.taskShowSummaries { summaries }
+                if dateFilter.period != "all" || sort != .due { Button { filtersOpen = true } label: { Label(sort.label + " · " + (NativeTaskDateFilter.labels[dateFilter.period] ?? "Período"), systemImage: "line.3.horizontal.decrease.circle") }.font(.caption).foregroundStyle(nativeBlue) }
+                if !dateFilter.valid { Text("A data inicial deve ser anterior ou igual à data final.").font(.caption).foregroundStyle(.red) }
                 if page == .calendar { NativeCalendarGrid(store: store, selection: $calendarDay, categoryID: category) }
                 if !category.isEmpty && store.layout.taskShowAmounts { NativeMoneySummaryLine(store: store, categoryID: category) }
                 if canAdd && store.layout.taskQuickCapture { quickAdd }
@@ -166,7 +179,7 @@ struct NativeTaskList: View {
         Section { VStack(spacing: 12) { Image(systemName: search.isEmpty ? (scope == .today ? "sun.max" : "checkmark.circle") : "magnifyingglass").font(.system(size: 36, weight: .light)).foregroundStyle(nativeBlue.opacity(0.65)).padding(20).background(nativeBlue.opacity(0.06), in: Circle()); Text(search.isEmpty ? "Tudo em ordem" : "Nada encontrado").font(.system(size: 19, weight: .semibold)); Text(search.isEmpty ? store.platform.text("emptyTasks", fallback: "Adicione no campo acima ou no botão +.\nEnter adiciona e deixa pronto para a próxima.") : "Tente outras palavras ou limpe os filtros.").font(.system(size: 14)).foregroundStyle(.secondary).multilineTextAlignment(.center); if store.editableCategories.isEmpty { Button("Criar categoria") { editingCategory = nil; categoryEditor = true }.buttonStyle(.borderedProminent) } }.frame(maxWidth: .infinity).padding(.vertical, 25) }.listRowBackground(Color.clear).listRowSeparator(.hidden)
     }
     private var summaries: some View {
-        ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 7) { summary(.today, label: "hoje"); summary(.overdue, label: "atrasadas"); summary(.upcoming, label: "próximas"); summary(.all, label: "em andamento") }.padding(.vertical, 3) }
+        ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 7) { summary(.all, label: "Tudo"); summary(.today, label: "hoje"); summary(.overdue, label: "atrasadas"); summary(.upcoming, label: "próximas") }.padding(.vertical, 3) }
     }
     private func summary(_ value: TaskScope, label: String) -> some View { let count = store.taskIndex.scopes[value.key] ?? 0; return Button { choose(value) } label: { summaryPill(count, label, active: category.isEmpty && scope == value, alert: value == .overdue && count > 0) }.buttonStyle(.plain) }
     private func summaryPill(_ count: Int, _ label: String, active: Bool, alert: Bool) -> some View { HStack(alignment: .firstTextBaseline, spacing: 6) { Text("\(count)").font(.system(size: 16, weight: .bold)).foregroundStyle(alert ? .red : .primary); Text(label).font(.system(size: 12)).foregroundStyle(.secondary) }.padding(.horizontal, 12).padding(.vertical, 9).background(active ? nativeBlue.opacity(0.08) : nativePaper, in: Capsule()) }
@@ -217,6 +230,12 @@ struct NativeTaskList: View {
     }
     private var contextDate: Date? { page == .calendar ? Calendar.current.startOfDay(for: calendarDay) : scope == .today ? Calendar.current.startOfDay(for: Date()) : scope == .tomorrow ? Calendar.current.startOfDay(for: Calendar.current.date(byAdding: .day, value: 1, to: Date())!) : nil }
     private func choose(_ value: TaskScope) { scope = value; category = ""; tag = ""; selected.removeAll(); selecting = false; page = .list }
+    private func saveTaskDefaults() {
+        guard !savingDefaults, store.platform.canWrite, dateFilter.valid else { return }
+        var layout = store.layout; layout.taskDefaultScope = "all"; layout.taskDefaultSort = sort.rawValue; layout.taskDateFilter = dateFilter
+        savingDefaults = true; defaultsSaved = false; filterIssue = nil
+        Task { defer { savingDefaults = false }; do { try await store.platform.saveLayout(layout, revision: store.platform.snapshot.revision); defaultsSaved = true } catch { filterIssue = error.localizedDescription } }
+    }
     private func consumeNavigation() { if let id = store.taskCategoryRequest { category = id; scope = .all; page = .list; tag = ""; search = ""; store.taskCategoryRequest = nil }; if let key = store.taskScopeRequest { choose(TaskScope(key: key)); store.taskScopeRequest = nil } }
     private func closeDrawer() { withAnimation(.easeInOut(duration: 0.22)) { drawer = false } }
     private func newTask() {
@@ -246,6 +265,47 @@ struct NativeTaskList: View {
     private func move(_ group: NativeTaskGroup, indices: IndexSet, destination: Int) { var ordered = group.items; ordered.move(fromOffsets: indices, toOffset: destination); Task { do { try await store.reorder(ordered) } catch { store.report(error) } } }
     private func saveFilter() { guard !filterName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }; var preferences = store.snapshot.preferences; var filters = preferences["filters"]?.array ?? []; filters.append(.object(["name": .string(filterName), "smart": .string(scope.key), "listId": .string(category), "tag": .string(tag), "search": .string(search)])); preferences["filters"] = .array(filters); Task { do { _ = try await store.mutate("org_preferences", preferences) } catch { store.report(error) } } }
     private func deleteFilter(_ index: Int) { var preferences = store.snapshot.preferences; var filters = preferences["filters"]?.array ?? []; guard filters.indices.contains(index) else { return }; filters.remove(at: index); preferences["filters"] = .array(filters); Task { do { _ = try await store.mutate("org_preferences", preferences) } catch { store.report(error) } } }
+}
+struct NativeTaskFilterControls: View {
+    @Binding var sort: String
+    @Binding var filter: NativeTaskDateFilter
+    var body: some View {
+        Group {
+            Picker("Ordenar por", selection: $sort) { ForEach(NativeTaskSort.allCases) { Text($0.label).tag($0.rawValue) } }
+            Picker("Período", selection: $filter.period) { ForEach(NativeTaskDateFilter.periods, id: \.self) { Text(NativeTaskDateFilter.labels[$0]!).tag($0) } }
+            if filter.period != "all" { Picker("Data considerada", selection: $filter.field) { ForEach(NativeTaskDateFilter.fields, id: \.self) { Text(NativeTaskDateFilter.labels[$0]!).tag($0) } } }
+            if filter.period == "custom" {
+                DatePicker("De", selection: dateBinding(true), displayedComponents: .date)
+                DatePicker("Até", selection: dateBinding(false), displayedComponents: .date)
+                if !filter.valid { Text("A data inicial deve ser anterior ou igual à final.").foregroundStyle(.red).font(.footnote) }
+            }
+        }.onChange(of: filter.period) { value in if value == "custom" { let today = NativeTaskDateFilter.dayString(Date()); if filter.from.isEmpty { filter.from = today }; if filter.to.isEmpty { filter.to = today } } }
+    }
+    private func dateBinding(_ start: Bool) -> Binding<Date> { Binding(get: { NativeTaskDateFilter.date(start ? filter.from : filter.to) ?? Date() }, set: { if start { filter.from = NativeTaskDateFilter.dayString($0) } else { filter.to = NativeTaskDateFilter.dayString($0) } }) }
+}
+struct NativeTaskFilterEditor: View {
+    @Binding var sort: String
+    @Binding var filter: NativeTaskDateFilter
+    let canSave: Bool
+    let saving: Bool
+    let saved: Bool
+    let issue: String?
+    let save: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section { NativeTaskFilterControls(sort: $sort, filter: $filter) } footer: { Text("As tarefas fixadas ficam no topo. O período inclui as duas datas; tarefas sem a data escolhida ficam fora do período.") }
+                Section {
+                    Button("Limpar filtros") { sort = NativeTaskSort.due.rawValue; filter = .init() }
+                    Button(action: save) { if saving { ProgressView() } else { Label("Usar como padrão ao abrir", systemImage: "pin") } }.disabled(!canSave || saving || !filter.valid)
+                    if saved { Label("Padrão confirmado no servidor", systemImage: "checkmark.circle").foregroundStyle(.green) }
+                    if let issue { Text(issue).foregroundStyle(.red).font(.footnote) }
+                } footer: { Text("Sem salvar o padrão, a escolha vale para esta visualização. O padrão também fica em Configurações → Layout e organização → Tarefas. A aba inicial é sempre Tudo.") }
+            }.navigationTitle("Filtros e ordenação").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Concluir") { dismiss() }.disabled(!filter.valid || saving) } }
+        }.interactiveDismissDisabled(!filter.valid || saving)
+    }
 }
 struct NativeTaskRow: View {
     @ObservedObject var store: NativeStore
