@@ -33,6 +33,7 @@ struct NativeFinanceScreen: View {
     }
     var body: some View {
         NavigationStack {
+            GeometryReader { viewport in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: layout.spacing) {
                     if layout.showMonth { monthHeader }
@@ -42,6 +43,7 @@ struct NativeFinanceScreen: View {
                     else if section == .transactions { transactionContent }
                     else { expenseContent }
                 }.padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 24)
+                    .frame(minHeight: viewport.size.height, alignment: .topLeading).contentShape(Rectangle())
             }.scrollBounceBehavior(.always, axes: .vertical).accessibilityIdentifier("finance-scroll-" + section.key).background(nativeCanvas).navigationTitle(section.rawValue)
                 .navigationBarTitleDisplayMode(layout.compactHeader ? .inline : .large)
                 .financeSearch(enabled: layout.showSearch && section != .dashboard, text: $search)
@@ -53,6 +55,7 @@ struct NativeFinanceScreen: View {
                 .onChange(of: scenePhase) { phase in
                     if phase == .active && (store.section == section || secondary) && !store.isPreview && !finance.busy && (finance.needsSync || Date().timeIntervalSince(finance.syncedAt ?? .distantPast) > 15) { Task { await finance.refresh() } }
                 }
+            }
         }
     }
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {

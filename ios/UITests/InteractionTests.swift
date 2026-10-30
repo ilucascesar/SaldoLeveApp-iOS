@@ -108,7 +108,8 @@ final class InteractionTests: XCTestCase {
         expectation(for: NSPredicate(format: "label == %@", "Consultas confirmadas: 2"), evaluatedWith: count)
         waitForExpectations(timeout: 10)
         for expected in 3...4 {
-            app.scrollViews["finance-scroll-dashboard"].swipeDown()
+            count.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)))
             expectation(for: NSPredicate(format: "label == %@", "Consultas confirmadas: \(expected)"), evaluatedWith: count)
             waitForExpectations(timeout: 10)
             XCTAssertFalse(app.descendants(matching: .any)["server-offline-banner"].exists)
