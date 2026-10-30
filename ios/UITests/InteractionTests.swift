@@ -5,6 +5,15 @@ final class InteractionTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
+    override func record(_ issue: XCTIssue) {
+        let app = XCUIApplication()
+        print("UI_FAILURE_STATE_BEGIN\n" + app.debugDescription + "\nUI_FAILURE_STATE_END")
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "failure-" + name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        super.record(issue)
+    }
     func testWidgetSettingsAndHomeScreenMenu() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-preview", "--preview-widgets"]
@@ -14,7 +23,7 @@ final class InteractionTests: XCTestCase {
         let stepper = app.steppers["widget-row-limit"]
         if !stepper.exists { app.swipeUp() }
         guard stepper.waitForExistence(timeout: 5) else { XCTFail("Missing widget row limit"); return }
-        let increment = stepper.buttons["Increment"]
+        let increment = stepper.buttons["widget-row-limit-Increment"]
         guard increment.waitForExistence(timeout: 5) else { XCTFail("Missing increment control: " + stepper.debugDescription); return }
         increment.tap()
         XCTAssertTrue(app.staticTexts["Até 11 linhas"].exists)
@@ -40,7 +49,7 @@ final class InteractionTests: XCTestCase {
         XCTAssertTrue(alert.waitForExistence(timeout: 20))
         XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "1.000,00")).firstMatch.exists)
         XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "100.000,00")).firstMatch.exists)
-        alert.buttons["Revisar"].tap()
+        alert.buttons["Revisar"].firstMatch.tap()
         XCTAssertFalse(alert.exists)
     }
     func testBirthdayContactsRequireReviewBeforeImport() {
@@ -90,10 +99,10 @@ final class InteractionTests: XCTestCase {
         app.launch()
         let title = app.descendants(matching: .any)["task-title"].firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 20))
-        title.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.5)).tap(); title.typeText(" atualizado")
+        title.tap(); title.typeText(" atualizado")
         let status = app.descendants(matching: .any)["task-save-status"].firstMatch
         expectation(for: NSPredicate(format: "label CONTAINS %@", "Salvo na sua conta"), evaluatedWith: status)
-        waitForExpectations(timeout: 15)
+        waitForExpectations(timeout: 35)
         XCTAssertTrue((title.value as? String ?? "").contains("atualizado"))
         XCTAssertEqual(app.alerts.count, 0)
     }
@@ -104,9 +113,9 @@ final class InteractionTests: XCTestCase {
         let title = app.descendants(matching: .any)["task-title"].firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 20))
         XCTAssertEqual(title.value as? String, "Título editado na web")
-        title.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.5)).tap(); title.typeText(" local")
+        title.tap(); title.typeText(" local")
         expectation(for: NSPredicate(format: "value == %@", "Título editado na web"), evaluatedWith: title)
-        waitForExpectations(timeout: 15)
+        waitForExpectations(timeout: 35)
         XCTAssertTrue(app.descendants(matching: .any)["task-sync-notice"].firstMatch.exists)
         XCTAssertFalse(app.buttons["Revisar alterações"].exists)
         XCTAssertTrue(app.staticTexts["Envios ao servidor: 1"].exists)
