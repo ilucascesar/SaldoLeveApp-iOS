@@ -1,0 +1,89 @@
+name: Compilar SaldoLeve iOS
+
+on:
+  push:
+    branches: [main]
+    paths: ['ios/**', '.github/workflows/ios-unsigned.yml']
+  workflow_dispatch:
+    inputs:
+      server_url:
+        description: 'URL HTTPS completa até /sistema.php; vazio mantém o endereço do app'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: saldoleve-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: xcode-27
+    timeout-minutes: 20
+    steps:
+      - name: Obter somente o código
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Aplicar endereço opcional
+        env:
+          SERVER_URL: ${{ inputs.server_url }}
+        shell: python
+        run: |
+          import json, os
+          from pathlib import Path
+          from urllib.parse import urlsplit
+          path = Path('ios/SaldoLeve/config.json')
+          config = json.loads(path.read_text(encoding='utf-8'))
+          url = os.environ.get('SERVER_URL', '').strip() or config['serverURL']
+          parts = urlsplit(url)
+          if (parts.scheme != 'https' or not parts.hostname or parts.username is not None
+              or parts.password is not None or parts.query or parts.fragment
+              or not parts.path.endswith('/sistema.php')):
+              raise SystemExit('Use HTTPS e o caminho completo até /sistema.php, sem credenciais ou parâmetros.')
+          config['serverURL'] = url
+          path.write_text(json.dumps(config, indent=2) + '\n', encoding='utf-8')
+
+      - name: Compilar para iPhone e gerar IPA sem assinatura
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: BUILD_NUMBER=$((1000 + BUILD_NUMBER)) bash ios/scripts/build-unsigned.sh
+
+      - name: Conferir telas no simulador com dados sintéticos
+        run: bash ios/scripts/preview-simulator.sh
+
+      - name: Verificar IPA para iPhone
+        run: |
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' ios/build/DerivedData/Build/Products/Release-iphoneos/SaldoLeve.app/Info.plist)
+          python3 ios/scripts/inspect-ipa.py ios/build/SaldoLeve-unsigned.ipa "$VERSION"
+
+      - name: Disponibilizar IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: SaldoLeve-IPA-AltStore
+          path: ios/build/SaldoLeve-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Disponibilizar imagens das telas
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SaldoLeve-Telas-iPhone
+          path: ios/build/previews/*.png
+          if-no-files-found: warn
+          retention-days: 3
+
+      - name: Disponibilizar diagnósticos do simulador
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SaldoLeve-Diagnosticos
+          path: |
+            ios/build/*.log
+            ios/build/Interactions.xcresult
+          if-no-files-found: warn
+          retention-days: 3

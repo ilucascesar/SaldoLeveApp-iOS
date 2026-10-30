@@ -1,0 +1,102 @@
+import SwiftUI
+
+@MainActor final class NativePlatformStore: ObservableObject {
+    unowned let parent: NativeStore
+    @Published var snapshot = NativePlatformSnapshot()
+    @Published var loading = false
+    @Published var saving = false
+    @Published var loaded = false
+    @Published var issue: String?
+    init(parent: NativeStore) { self.parent = parent }
+    static let menu = ["dashboard", "expenses", "tasks", "birthdays", "search", "transactions", "shared", "focus", "layout", "remote", "widgets", "notifications", "profile"]
+    static let labels = ["dashboard":"Visão geral", "expenses":"Despesas", "tasks":"Tarefas", "birthdays":"Aniversariantes", "search":"Busca geral", "transactions":"Lançamentos", "shared":"Compartilhados", "focus":"Meu dia", "layout":"Layout e personalização", "remote":"Configurar aplicativo", "widgets":"Widgets", "notifications":"Notificações e contador", "profile":"Minha conta"]
+    var canWrite: Bool { loaded && parent.canWrite && !loading && !saving }
+    func label(_ key: String) -> String { let label = snapshot.config.record("labels").text(key); return label.isEmpty ? Self.labels[key] ?? key : label }
+    func text(_ key: String, fallback: String) -> String { let value = snapshot.config.record("texts").text(key); return value.isEmpty ? fallback : value }
+    func enabled(_ key: String) -> Bool { snapshot.config.record("features")[key] != .bool(false) }
+    var visibleMenu: [String] {
+        let supplied = snapshot.config["menuOrder"]?.array.map(\.string) ?? []
+        let hidden = Set(snapshot.config["hiddenMenu"]?.array.map(\.string) ?? [])
+        var seen = Set<String>()
+        return (supplied + Self.menu).filter { Self.menu.contains($0) && seen.insert($0).inserted && (!hidden.contains($0) || ["tasks", "remote", "profile"].contains($0)) && (!["birthdays", "search"].contains($0) || enabled($0)) }
+    }
+    func reset() { snapshot = NativePlatformSnapshot(); loaded = false; issue = nil }
+    func refresh() async {
+        guard parent.user != nil, parent.networkAvailable, !parent.offline, !loading else { return }
+        #if DEBUG
+        if parent.isPreview { if !loaded { preview() }; return }
+        #endif
+        loading = true; defer { loading = false }
+        let userID = parent.user?.id
+        do {
+            let next = try await parent.api.get(NativePlatformSnapshot.self, action: "platform_bootstrap")
+            guard parent.user?.id == userID else { return }
+            snapshot = next; loaded = true; issue = nil; applyRemoteLayout()
+            parent.reminders.update(parent.snapshot, birthdays: enabled("birthdays") ? next.birthdays : [])
+            parent.objectWillChange.send()
+        } catch { parent.noteConnectionFailure(error); issue = "Não foi possível atualizar os novos recursos. Confira a atualização da HostGator. " + error.localizedDescription }
+    }
+    private func applyRemoteLayout() {
+        let changes = snapshot.config.record("layout")
+        guard !changes.isEmpty, let encoded = try? JSONEncoder().encode(parent.layout), var base = try? JSONDecoder().decode(JSONObject.self, from: encoded) else { return }
+        for (key, value) in changes { base[key] = value }
+        guard let bytes = try? JSONEncoder().encode(base), var layout = try? JSONDecoder().decode(NativeLayoutPreferences.self, from: bytes) else { return }
+        layout.normalize(); if layout != parent.layout { parent.layout = layout }
+    }
+    private func write(action: String, body: JSONObject) async throws -> JSONObject {
+        do { return try await parent.api.post(action: action, body: body) }
+        catch { parent.noteConnectionFailure(error); throw error }
+    }
+    func saveConfig(_ config: JSONObject, revision: Int) async throws {
+        guard canWrite else { throw NativeFailure("Conecte-se e atualize antes de alterar as configurações.") }
+        guard revision == snapshot.revision else { throw NativeFailure("A configuração mudou no servidor. Atualize antes de salvar.", status: 409) }
+        saving = true; defer { saving = false }
+        do {
+            _ = try await write(action: "platform_save_config", body: ["revision": .number(Double(revision)), "config": .object(config)])
+            await refresh()
+            guard loaded, issue == nil else { throw NativeFailure("A gravação foi enviada. Atualize para conferir a configuração no servidor.") }
+        } catch { parent.noteConnectionFailure(error); if (error as? NativeFailure)?.status != 499 { await refresh() }; throw error }
+    }
+    func saveLayout(_ layout: NativeLayoutPreferences, revision: Int) async throws {
+        var config = snapshot.config
+        let bytes = try JSONEncoder().encode(layout)
+        config["layout"] = .object(try JSONDecoder().decode(JSONObject.self, from: bytes))
+        try await saveConfig(config, revision: revision)
+    }
+    func saveBirthday(_ value: NativeBirthday) async throws {
+        guard canWrite else { throw NativeFailure("Sem conexão com o servidor. O aniversário não foi salvo.") }
+        saving = true; defer { saving = false }
+        _ = try await write(action: "birthday_save", body: value.fields)
+        await refresh()
+        if issue != nil { throw NativeFailure("Atualize para confirmar os aniversários no servidor.") }
+    }
+    func deleteBirthday(_ value: NativeBirthday) async throws {
+        guard canWrite else { throw NativeFailure("Conecte-se antes de excluir.") }
+        saving = true; defer { saving = false }
+        _ = try await write(action: "birthday_delete", body: ["id": .string(value.id), "revision": value.fields["revision"] ?? .number(0)])
+        await refresh()
+        if issue != nil { throw NativeFailure("Atualize para confirmar os aniversários no servidor.") }
+    }
+    func importBirthdays(_ values: [NativeBirthday]) async throws -> (Int, Int) {
+        guard canWrite else { throw NativeFailure("Conecte-se antes de importar os aniversários.") }
+        saving = true; defer { saving = false }
+        var imported = 0, skipped = 0
+        for offset in stride(from: 0, to: values.count, by: 200) {
+            guard parent.networkAvailable && !parent.offline else { throw NativeFailure("A conexão caiu. Atualize para conferir os lotes já confirmados antes de continuar.") }
+            let batch = values[offset..<min(values.count, offset + 200)]
+            let response = try await write(action: "birthdays_import", body: ["items": .array(batch.map { .object($0.fields) })])
+            imported += response.integer("imported"); skipped += response.integer("skipped")
+        }
+        await refresh(); return (imported, skipped)
+    }
+    #if DEBUG
+    func preview() {
+        var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "America/Sao_Paulo")!
+        let now = Date(), tomorrow = c.date(byAdding: .day, value: 1, to: now)!
+        var today = NativeBirthday.fresh(), next = NativeBirthday.fresh()
+        today.fields.merge(["id": .string("b1"), "name": .string("Ana · Família"), "month": .number(Double(c.component(.month, from: now))), "day": .number(Double(c.component(.day, from: now))), "revision": .number(1)]) { _, new in new }
+        next.fields.merge(["id": .string("b2"), "name": .string("Bruno · Amigos"), "month": .number(Double(c.component(.month, from: tomorrow))), "day": .number(Double(c.component(.day, from: tomorrow))), "revision": .number(1)]) { _, new in new }
+        snapshot.birthdays = [today, next]; loaded = true
+    }
+    #endif
+}
