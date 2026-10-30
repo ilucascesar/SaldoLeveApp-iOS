@@ -180,7 +180,7 @@ struct NativeTaskList: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(TaskScope.fixedDrawerScopes) { value in scopeDrawerLine(value) }
-                    DisclosureGroup("Mais filtros") { ForEach(TaskScope.additionalDrawerScopes) { value in scopeDrawerLine(value) } }.font(.system(size: 13)).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 8).accessibilityIdentifier("task-more-filters")
+                    DisclosureGroup("Mais filtros") { ForEach(TaskScope.additionalDrawerScopes) { value in scopeDrawerLine(value) } }.font(.system(size: 13)).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 8)
                     HStack { Text("Categorias").font(.system(size: 13, weight: .semibold)); Spacer(); Button { editingCategory = nil; closeDrawer(); categoryEditor = true } label: { Image(systemName: "plus").frame(width: 36, height: 36) }.accessibilityLabel("Criar categoria") }.foregroundStyle(.secondary).padding(.leading, 12).padding(.top, 9)
                     ForEach(folders, id: \.self) { folder in if !folder.isEmpty { Label(folder, systemImage: "folder").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary).padding(.leading, 14).padding(.top, 10) }; ForEach(store.snapshot.lists.filter { !$0.archived && $0.fields.text("folder") == folder }) { categoryLine($0) } }
                     DisclosureGroup("Categorias arquivadas") { ForEach(store.snapshot.lists.filter(\.archived)) { categoryLine($0) } }.font(.system(size: 12)).foregroundStyle(.secondary).padding(12)

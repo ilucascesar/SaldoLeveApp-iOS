@@ -135,7 +135,10 @@ final class InteractionTests: XCTestCase {
         XCTAssertFalse(app.switches.matching(NSPredicate(format: "label CONTAINS %@", "Pendências do mês")).firstMatch.exists, "There is only one pending-visibility switch")
         app.navigationBars.buttons["Visão geral"].firstMatch.tap()
         app.buttons["layout-save"].tap()
-        XCTAssertTrue(app.navigationBars["Configurações"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["Categorias e filtros"].waitForExistence(timeout: 8))
+        app.buttons["Categorias e filtros"].tap()
+        app.buttons["Configurações"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["settings-layout"].waitForExistence(timeout: 5))
         app.buttons["settings-layout"].tap(); dashboard.tap()
         XCTAssertEqual(String(describing: pending.value ?? ""), "0", "Saved canonical layout survives reopening settings")
         app.navigationBars.buttons["Layout e personalização"].firstMatch.tap()
@@ -149,7 +152,7 @@ final class InteractionTests: XCTestCase {
         XCTAssertTrue(app.buttons["Categorias e filtros"].waitForExistence(timeout: 20)); app.buttons["Categorias e filtros"].tap()
         for key in ["all", "today", "overdue"] { XCTAssertTrue(app.buttons["task-scope-" + key].exists) }
         for key in ["tomorrow", "next", "done", "archived", "trash", "assigned"] { XCTAssertFalse(app.buttons["task-scope-" + key].exists) }
-        app.buttons["task-more-filters"].firstMatch.tap()
+        app.buttons["Mais filtros"].firstMatch.tap()
         for key in ["tomorrow", "next", "done", "archived", "trash", "assigned"] { XCTAssertTrue(app.buttons["task-scope-" + key].exists) }
         app.buttons["task-scope-tomorrow"].tap()
         XCTAssertFalse(app.buttons["task-scope-all"].exists)
