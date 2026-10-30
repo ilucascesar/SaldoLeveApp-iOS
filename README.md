@@ -10,7 +10,7 @@ A compilação não recebe senha Apple, certificado ou perfil de provisionamento
 
 ## Widgets
 
-A partir da versão 2.5.2, o iOS 27 ou posterior oferece o tamanho Extra grande vertical, além de Pequeno, Médio e Grande. O conteúdo é uma lista com subtotais de quantidade; é possível escolher até 30 linhas, respeitando o espaço disponível, no app ou nas opções de cada widget.
+A partir da versão 2.5.3, todas as preferências do app estão em Configurações, separadas por categorias e com busca. No iOS 27 ou posterior, a galeria também oferece SaldoLeve · Lista ampliada, uma identidade própria para adicionar diretamente o widget vertical, inclusive quando uma instância antiga não troca de tamanho. O conteúdo é uma lista com subtotais de quantidade; é possível escolher até 30 linhas, respeitando o espaço disponível. A compilação verifica a instalação do tamanho vertical na Tela de Início, além de abrir o menu.
 
 O código de conexão do widget é gerado na conta do usuário, nunca fica nos arquivos de compilação e não deve ser publicado em issues, logs ou capturas.
 

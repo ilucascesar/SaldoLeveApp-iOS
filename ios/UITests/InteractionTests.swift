@@ -49,6 +49,51 @@ final class InteractionTests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
         print("WIDGET_HOME_MENU_BEGIN\n" + home.debugDescription + "\nWIDGET_HOME_MENU_END")
+        let portrait = home.buttons["Extra Large Portrait widget"].firstMatch
+        XCTAssertTrue(portrait.waitForExistence(timeout: 8))
+        portrait.tap()
+        let addWidget = home.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Add Widget", "Adicionar Widget")).firstMatch
+        if addWidget.waitForExistence(timeout: 3) { addWidget.tap() }
+        var firstSized: Date?
+        let screen = home.frame
+        let resized = NSPredicate { _, _ in
+            let visible = home.icons.matching(identifier: "SaldoLeve").allElementsBoundByIndex.contains { element in
+                let frame = element.frame
+                return frame.width > screen.width * 0.75 && frame.height > screen.height * 0.6 && frame.minX >= 0 && frame.maxX <= screen.maxX + 2
+            }
+            guard visible else { firstSized = nil; return false }
+            if firstSized == nil { firstSized = Date() }
+            return Date().timeIntervalSince(firstSized!) >= 3
+        }
+        expectation(for: resized, evaluatedWith: home)
+        waitForExpectations(timeout: 30)
+        let installed = XCTAttachment(screenshot: home.screenshot())
+        installed.name = "widget-portrait-installed"; installed.lifetime = .keepAlways; add(installed)
+        print("WIDGET_PORTRAIT_INSTALLED\n" + home.debugDescription)
+    }
+    func testBSettingsCenterGroupsAndSearch() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-preview", "--preview-settings"]
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Configurações"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["settings-appearance"].exists)
+        let widgets = app.buttons["settings-widgets"]
+        XCTAssertTrue(widgets.exists); widgets.tap()
+        XCTAssertTrue(app.navigationBars["Widgets"].waitForExistence(timeout: 8))
+        app.navigationBars.buttons["Configurações"].firstMatch.tap()
+        let layout = app.buttons["settings-layout"]
+        XCTAssertTrue(layout.waitForExistence(timeout: 5)); layout.tap()
+        XCTAssertTrue(app.navigationBars["Layout e personalização"].waitForExistence(timeout: 8))
+        XCTAssertFalse(app.buttons["Configurações dos widgets"].exists)
+        XCTAssertFalse(app.buttons["Notificações e contador"].exists)
+        app.navigationBars.buttons["Configurações"].firstMatch.tap()
+        app.swipeDown()
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 5)); search.tap(); search.typeText("silêncio")
+        XCTAssertTrue(app.buttons["settings-notifications"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["settings-layout"].exists)
+        app.buttons["settings-notifications"].tap()
+        XCTAssertTrue(app.navigationBars["Notificações"].waitForExistence(timeout: 8))
     }
     func testUnusualInvoiceReviewFormatsMoneyAndCanCancel() {
         let app = XCUIApplication()
@@ -84,11 +129,12 @@ final class InteractionTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-preview", "--preview-remote"]
         app.launch()
-        XCTAssertTrue(app.navigationBars["Configurar aplicativo"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.navigationBars["Menus e textos"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.buttons["Salvar"].exists)
         XCTAssertTrue(app.textFields["Visão geral"].exists)
+        app.navigationBars.buttons["Configurações"].firstMatch.tap()
         app.buttons["Fechar"].firstMatch.tap()
-        XCTAssertFalse(app.navigationBars["Configurar aplicativo"].exists)
+        XCTAssertFalse(app.navigationBars["Menus e textos"].exists)
     }
     func testOfflineEditorIsReadOnlyAndCannotSaveDrafts() {
         let app = XCUIApplication()

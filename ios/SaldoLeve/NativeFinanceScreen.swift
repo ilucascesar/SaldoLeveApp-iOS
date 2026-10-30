@@ -62,7 +62,7 @@ struct NativeFinanceScreen: View {
         }
         ToolbarItemGroup(placement: .navigationBarTrailing) {
             Menu {
-                Button("Personalizar layout") { route = .init(kind: "layout") }
+                Button("Configurações") { route = .init(kind: "settings") }
                 Button("Próximas faturas") { route = .init(kind: "future") }
                 Button("Meses fechados") { route = .init(kind: "closures") }
                 Button("Informar renda") { route = .init(kind: "income") }
@@ -272,7 +272,7 @@ struct NativeWebExpenseCard: View {
             if p.pinnedExpenses.contains(expenseID) { changed.pinnedExpenses.removeAll { $0 == expenseID } } else { changed.pinnedExpenses.append(expenseID) }
             let revision = store.platform.snapshot.revision
             Task { do { try await store.platform.saveLayout(changed, revision: revision) } catch { store.report(error) } } } label: { Label(p.pinnedExpenses.contains(expenseID) ? "Desafixar" : "Fixar no início", systemImage: "pin") }.disabled(!store.platform.canWrite)
-        Button { open("layout") } label: { Label("Personalizar cards", systemImage: "slider.horizontal.3") }
+        Button { open("settings") } label: { Label("Configurações", systemImage: "gearshape") }
     }
     private func breakdown(_ title: String, _ value: String) -> some View { VStack(alignment: .leading, spacing: 5) { Text(title).font(.system(size: 10)).foregroundStyle(.secondary); Text(value).font(.system(size: 12, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.6) }.frame(maxWidth: .infinity, alignment: .leading) }
     private func open(_ kind: String) { route = .init(kind: kind, fields: e) }

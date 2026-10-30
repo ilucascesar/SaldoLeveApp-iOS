@@ -8,12 +8,13 @@ struct NativeFinanceModal: View {
         switch route.kind {
         case "moduleTransactions": NativeFinanceScreen(store: finance.parent, finance: finance, section: .transactions, secondary: true)
         case "moduleShared": NativeFinanceScreen(store: finance.parent, finance: finance, section: .shared, secondary: true)
-        case "remote": NativeRemoteSettings(platform: finance.parent.platform)
+        case "settings": NativeSettingsView(store: finance.parent)
+        case "remote": NativeSettingsView(store: finance.parent, initialPage: .menus)
         case "birthdays": NativeBirthdaysView(store: finance.parent, platform: finance.parent.platform, initialID: route.fields.text("id"))
         case "search": NativeUnifiedSearch(store: finance.parent, platform: finance.parent.platform)
         case "taskHistory": NativeHistoryView(store: finance.parent, taskID: route.fields.text("id"))
-        case "layout": NativeLayoutSettings(store: finance.parent)
-        case "widgets": NavigationStack { NativeWidgetSettings(store: finance.parent).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() } } } }
+        case "layout": NativeSettingsView(store: finance.parent, initialPage: .layout)
+        case "widgets": NativeSettingsView(store: finance.parent, initialPage: .widgets)
         case "profile": NativeProfileView(store: finance.parent)
         case "focus": NativeDailyFocus(store: finance.parent)
         case "detail": NativeFinanceExpenseDetail(finance: finance, expenseID: route.fields.text("id"))
@@ -24,7 +25,7 @@ struct NativeFinanceModal: View {
         case "closures": NativeFinanceClosures(finance: finance)
         case "reminders": NativeExpenseReminders(finance: finance, expenseID: route.fields.text("id"))
         case "payments": NativeExpensePayments(finance: finance, expenseID: route.fields.text("id"))
-        case "previewNotifications": NavigationStack { NativeNotificationSettings(store: finance.parent).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() } } } }
+        case "previewNotifications": NativeSettingsView(store: finance.parent, initialPage: .notifications)
         case "export": NativeShareSheet(items: [URL(fileURLWithPath: route.fields.text("path"))])
         default: NativeFinanceActionForm(finance: finance, route: route)
         }

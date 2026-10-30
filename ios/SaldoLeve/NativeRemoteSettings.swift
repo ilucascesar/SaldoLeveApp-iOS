@@ -1,9 +1,13 @@
 import SwiftUI
 
+enum NativeRemoteSettingsPage: Equatable { case menus, features, birthdays }
+
 @MainActor struct NativeRemoteSettings: View {
     @ObservedObject var platform: NativePlatformStore
     @ObservedObject private var store: NativeStore
-    init(platform: NativePlatformStore) { self.platform = platform; self.store = platform.parent }
+    private let page: NativeRemoteSettingsPage
+    private let embedded: Bool
+    init(platform: NativePlatformStore, page: NativeRemoteSettingsPage = .menus, embedded: Bool = false) { self.platform = platform; self.store = platform.parent; self.page = page; self.embedded = embedded }
     @Environment(\.dismiss) private var dismiss
     @State private var config: JSONObject = [:]
     @State private var revision = 0
@@ -17,21 +21,25 @@ import SwiftUI
     }
     private var order: [String] {
         var seen = Set<String>()
-        return ((config["menuOrder"]?.array.map(\.string) ?? []) + NativePlatformStore.menu).filter { NativePlatformStore.menu.contains($0) && seen.insert($0).inserted }
+        return ((config["menuOrder"]?.array.map(\.string) ?? []) + NativePlatformStore.navigationMenu).filter { NativePlatformStore.navigationMenu.contains($0) && seen.insert($0).inserted }
     }
-    var body: some View {
-        NavigationStack {
+    private var title: String { switch page { case .menus: return "Menus e textos"; case .features: return "Recursos e sugestões"; case .birthdays: return "Padrões de aniversariantes" } }
+    @ViewBuilder var body: some View {
+        if embedded { content } else { NavigationStack { content } }
+    }
+    private var content: some View {
             Form {
                 Section {
                     Text("As opções são guardadas na sua conta e aplicadas no site e no iPhone após sincronizar. Novas funções que esta versão ainda não conhece continuam exigindo uma atualização do aplicativo.").font(.footnote).foregroundStyle(.secondary)
                     Text("Configuração \(revision)").font(.caption).foregroundStyle(.secondary)
                 }
+                if page == .menus {
                 Section("Menus") {
                     NavigationLink("Ordenar o menu") { List {
                         ForEach(order, id: \.self) { Text(config.record("labels").text($0).isEmpty ? NativePlatformStore.labels[$0] ?? $0 : config.record("labels").text($0)) }
                             .onMove { source, destination in var next = order; next.move(fromOffsets: source, toOffset: destination); config["menuOrder"] = .array(next.map(JSONValue.string)) }
                     }.environment(\.editMode, .constant(.active)).navigationTitle("Ordem do menu") }
-                    ForEach(NativePlatformStore.menu, id: \.self) { key in
+                    ForEach(NativePlatformStore.navigationMenu, id: \.self) { key in
                         VStack(alignment: .leading, spacing: 6) {
                             TextField(NativePlatformStore.labels[key] ?? key, text: string("labels", key, fallback: NativePlatformStore.labels[key] ?? key))
                             if !["tasks", "remote", "profile"].contains(key) {
@@ -49,12 +57,16 @@ import SwiftUI
                     TextField("Mensagem de aniversários vazios", text: string("texts", "birthdayEmpty", fallback: "Nenhum aniversário neste filtro."))
                     TextField("Texto da busca geral", text: string("texts", "searchPlaceholder", fallback: "Buscar no SaldoLeve"))
                 }
+                }
+                if page == .features {
                 Section("Recursos") {
                     Toggle("Aniversariantes", isOn: flag("features", "birthdays"))
                     Toggle("Busca geral", isOn: flag("features", "search"))
                     Toggle("Sugestões de organização", isOn: flag("features", "suggestions"))
                     Toggle("Conferir valores e datas fora do padrão", isOn: flag("features", "warnings"))
                 }
+                }
+                if page == .birthdays {
                 Section("Padrões de novos aniversários") {
                     TextField("Grupo padrão", text: string("birthdayDefaults", "group", fallback: "Amigos"))
                     TextField("Horário (HH:mm)", text: string("birthdayDefaults", "time", fallback: "09:00")).keyboardType(.numbersAndPunctuation)
@@ -66,15 +78,15 @@ import SwiftUI
                         }))
                     }
                 }
+                }
                 if let issue = issue ?? platform.issue { Section { Text(issue).font(.footnote).foregroundStyle(.secondary) } }
-            }.disabled(!platform.canWrite || working).navigationTitle("Configurar aplicativo").navigationBarTitleDisplayMode(.inline)
+            }.disabled(!platform.canWrite || working).navigationTitle(title).navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() }.disabled(working) }
+                    if !embedded { ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() }.disabled(working) } }
                     ToolbarItem(placement: .confirmationAction) { Button("Salvar") { Task { working = true; defer { working = false }; do { try await platform.saveConfig(config, revision: revision); dismiss() } catch { issue = error.localizedDescription } } }.bold().disabled(!platform.canWrite || working) }
                 }
                 .task { await platform.refresh(); config = platform.snapshot.config; revision = platform.snapshot.revision }
                 .onChange(of: store.offline) { offline in guard offline, !working else { return }; config = platform.snapshot.config; revision = platform.snapshot.revision; issue = "Sem conexão. Alterações não confirmadas foram descartadas." }
                 .onChange(of: platform.snapshot.revision) { next in guard !working else { return }; config = platform.snapshot.config; revision = next; issue = "As opções foram atualizadas com os dados do servidor." }
-        }
     }
 }

@@ -17,12 +17,16 @@ struct NativeWidgetSettings: View {
                 Label("Widgets do SaldoLeve", systemImage: "square.grid.2x2.fill").font(.headline)
                 Text("Lista e quantidades de Hoje, Atrasadas e Próximas.").font(.subheadline).foregroundStyle(.secondary)
                 NativeWidgetLayoutPreview(store: store, display: display)
-                Button("Abrir lista ampliada") { focus = true }
+                Button("Abrir Meu dia no aplicativo") { focus = true }
                 if #available(iOS 27.0, *) {
                     Text("Tamanhos: Pequeno, Médio, Grande e Extra grande vertical. O vertical mostra uma lista mais alta; escolha até 30 linhas nas opções abaixo.").font(.footnote).foregroundStyle(.secondary)
+                    Text("Para instalar diretamente o maior: segure uma área vazia da Tela de Início → Editar → Adicionar Widget → SaldoLeve → SaldoLeve · Lista ampliada. Ele ocupa uma página inteira. Se um widget antigo não mudar de tamanho, adicione essa opção nova e copie o código de conexão abaixo.").font(.footnote).foregroundStyle(.secondary)
                 } else {
                     Text("Pequeno, Médio e Grande estão disponíveis neste iPhone. O Extra grande vertical requer iOS 27 ou posterior.").font(.footnote).foregroundStyle(.secondary)
                 }
+            }
+            Section("Tamanho na Tela de Início") {
+                Text("O tamanho é escolhido na Tela de Início do iPhone. Quantidade de linhas e tamanho do texto ajustam o conteúdo dentro do widget; não mudam sua área na tela.").font(.footnote).foregroundStyle(.secondary)
             }
             Section("Layout e conteúdo do widget") {
                 Picker("Mostrar", selection: text("scope", fallback: "focus")) { Text("Meu dia").tag("focus"); Text("Todas as pendentes").tag("all"); Text("Só hoje").tag("today"); Text("Só atrasadas").tag("overdue"); Text("Próximas").tag("next"); Text("A pagar").tag("pay"); Text("A receber").tag("receive"); Text("Sem data").tag("undated") }

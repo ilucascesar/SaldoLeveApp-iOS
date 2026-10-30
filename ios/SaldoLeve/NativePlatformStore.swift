@@ -9,6 +9,8 @@ import SwiftUI
     @Published var issue: String?
     init(parent: NativeStore) { self.parent = parent }
     static let menu = ["dashboard", "expenses", "tasks", "birthdays", "search", "transactions", "shared", "focus", "layout", "remote", "widgets", "notifications", "profile"]
+    static let settingsMenuKeys: Set<String> = ["layout", "remote", "widgets", "notifications", "profile"]
+    static var navigationMenu: [String] { menu.filter { !settingsMenuKeys.contains($0) } }
     static let labels = ["dashboard":"Visão geral", "expenses":"Despesas", "tasks":"Tarefas", "birthdays":"Aniversariantes", "search":"Busca geral", "transactions":"Lançamentos", "shared":"Compartilhados", "focus":"Meu dia", "layout":"Layout e personalização", "remote":"Configurar aplicativo", "widgets":"Widgets", "notifications":"Notificações e contador", "profile":"Minha conta"]
     var canWrite: Bool { loaded && parent.canWrite && !loading && !saving }
     func label(_ key: String) -> String { let label = snapshot.config.record("labels").text(key); return label.isEmpty ? Self.labels[key] ?? key : label }

@@ -50,6 +50,7 @@ struct NativeAppShell: View {
                 if flags.contains("--preview-layout") { store.openedFinance = .init(kind: "layout") }
                 if flags.contains("--preview-focus") { store.openedFinance = .init(kind: "focus") }
                 if flags.contains("--preview-widgets") { store.openedFinance = .init(kind: "widgets") }
+                if flags.contains("--preview-settings") { store.openedFinance = .init(kind: "settings") }
                 if flags.contains("--preview-notifications") { store.openedFinance = .init(kind: "previewNotifications") }
                 #endif
             }
@@ -71,12 +72,13 @@ struct NativeAppDrawer: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 4) {
-                    ForEach(platform.visibleMenu, id: \.self) { key in
+                    ForEach(platform.visibleMenu.filter { !NativePlatformStore.settingsMenuKeys.contains($0) }, id: \.self) { key in
                         line(platform.label(key), icon: icons[key] ?? "circle", active: ["tasks", "expenses", "dashboard"].contains(key) && store.section.key == key) {
                             if ["tasks", "expenses", "dashboard"].contains(key) { store.section = NativeAppSection(key: key); store.menuOpen = false }
                             else { open(["transactions":"moduleTransactions", "shared":"moduleShared", "notifications":"previewNotifications"][key] ?? key) }
                         }
                     }
+                    line("Configurações", icon: "gearshape") { open("settings") }
                     DisclosureGroup("Categorias de tarefas") {
                         ForEach(store.snapshot.lists.filter { !$0.archived }) { category in
                             line(category.name, icon: "circle.fill") { store.section = .tasks; store.taskCategoryRequest = category.id; store.menuOpen = false }
@@ -97,6 +99,7 @@ struct NativeDailyFocus: View {
     @Environment(\.dismiss) private var dismiss
     @State private var horizon = 7
     @State private var editing: NativeTask?
+    @State private var settings = false
     @State private var daily: [String: [NativeTask]] = [:]
     private let scopes: [TaskScope] = [.today, .overdue, .upcoming]
     private func tasks(_ scope: TaskScope) -> [NativeTask] {
@@ -116,7 +119,8 @@ struct NativeDailyFocus: View {
                     }
                 }
             }.listStyle(.insetGrouped).navigationTitle("Meu dia").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() } }; ToolbarItem(placement: .primaryAction) { NavigationLink { NativeWidgetSettings(store: store) } label: { Image(systemName: "slider.horizontal.3") } } }
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() } }; ToolbarItem(placement: .primaryAction) { Button { settings = true } label: { Image(systemName: "gearshape") }.accessibilityLabel("Configurações") } }
+                .sheet(isPresented: $settings) { NativeSettingsView(store: store) }
                 .sheet(item: $editing) { NativeTaskEditor(store: store, original: $0) }
                 .onAppear { let saved = UserDefaults.standard.integer(forKey: "nativeWidgetHorizon"); if (1...30).contains(saved) { horizon = saved } }
                 .onChange(of: horizon) { UserDefaults.standard.set($0, forKey: "nativeWidgetHorizon") }

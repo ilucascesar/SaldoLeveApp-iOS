@@ -11,8 +11,8 @@ import UserNotifications
     @State private var group = ""
     @State private var editing: NativeBirthday?
     @State private var importing = false
+    @State private var settings = false
     @State private var issue: String?
-    @State private var prepared = 0
     private var filtered: [NativeBirthday] {
         platform.snapshot.birthdays.filter { value in
             guard group.isEmpty || value.group == group, search.isEmpty || value.name.localizedStandardContains(search), let date = value.nextDate() else { return false }
@@ -39,18 +39,7 @@ import UserNotifications
                     Button { editing = .fresh(config: platform.snapshot.config) } label: { Label("Cadastrar aniversário", systemImage: "plus.circle") }.disabled(!platform.canWrite).accessibilityIdentifier("birthday-add")
                     Button { importing = true } label: { Label("Importar aniversários dos Contatos", systemImage: "person.crop.rectangle.stack") }.disabled(!platform.canWrite).accessibilityIdentifier("birthday-import")
                 }
-                Section("Avisos no iPhone") {
-                    Button("Permitir e preparar notificações") { Task {
-                        do {
-                            let granted = try await store.reminders.enable(store.snapshot)
-                            if granted { store.reminders.update(store.snapshot, birthdays: platform.enabled("birthdays") ? platform.snapshot.birthdays : []); issue = "Notificações autorizadas. Os próximos avisos estão sendo preparados." }
-                            else { issue = "As notificações não foram permitidas. Libere o SaldoLeve nos Ajustes do iPhone." }
-                        } catch { issue = error.localizedDescription }
-                    } }.disabled(!store.networkAvailable || store.offline)
-                    LabeledContent("Avisos preparados", value: String(prepared))
-                    Text("Os avisos são locais e respeitam as configurações de silêncio. Sincronize o iPhone após alterações no computador. O app prepara os próximos avisos dentro do limite do iOS e atualiza a programação durante o uso.").font(.caption).foregroundStyle(.secondary)
-                    Button("Abrir ajustes de notificações") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }.font(.footnote)
-                }
+                Section { Button { settings = true } label: { Label("Configurações de aniversariantes", systemImage: "gearshape") } }
                 if !store.networkAvailable || store.offline { Section { Label("Sem conexão · somente consulta", systemImage: "wifi.slash").foregroundStyle(.orange) } }
                 if let message = issue ?? platform.issue { Section { Text(message).font(.footnote).foregroundStyle(.secondary) } }
                 Section("\(filtered.count) aniversariante(s)") {
@@ -71,11 +60,12 @@ import UserNotifications
                     }
                 }
             }.navigationTitle(platform.label("birthdays")).navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() } }; ToolbarItem(placement: .primaryAction) { if platform.loading { ProgressView() } else { Button { Task { await platform.refresh(); prepared = await store.reminders.birthdayPendingCount() } } label: { Image(systemName: "arrow.clockwise") } } } }
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() } }; ToolbarItem(placement: .primaryAction) { if platform.loading { ProgressView() } else { Button { Task { await platform.refresh() } } label: { Image(systemName: "arrow.clockwise") } } } }
                 .sheet(item: $editing) { NativeBirthdayEditor(platform: platform, original: $0) }
+                .sheet(isPresented: $settings) { NativeSettingsView(store: store, initialPage: .birthdays) }
                 .sheet(isPresented: $importing) { NativeBirthdayImportView(platform: platform) }
-                .task { await platform.refresh(); prepared = await store.reminders.birthdayPendingCount(); if !initialID.isEmpty { editing = platform.snapshot.birthdays.first { $0.id == initialID } } }
-                .refreshable { await platform.refresh(); prepared = await store.reminders.birthdayPendingCount() }
+                .task { await platform.refresh(); if !initialID.isEmpty { editing = platform.snapshot.birthdays.first { $0.id == initialID } } }
+                .refreshable { await platform.refresh() }
         }
     }
 }

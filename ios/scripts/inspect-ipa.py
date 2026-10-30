@@ -46,6 +46,8 @@ with zipfile.ZipFile(target) as archive:
             info = plistlib.loads(archive.read(prefix + 'Info.plist'))
             assert int(info['DTSDKName'].removeprefix('iphoneos').split('.')[0]) >= 27, 'Portrait widgets require the iOS 27 SDK'
         assert b'systemExtraLargePortrait' in archive.read(widget + 'SaldoLeveWidgets'), 'Portrait widget family missing'
+        if tuple(map(int, main['CFBundleShortVersionString'].split('.'))) >= (2, 5, 3):
+            assert b'SaldoLevePortraitWidgets' in archive.read(widget + 'SaldoLeveWidgets'), 'Dedicated portrait widget missing'
     if main['CFBundleShortVersionString'].startswith('2.5.'):
         assert main.get('NSContactsUsageDescription'), 'Contacts purpose is required'
         assert b'--preview-contacts' not in archive.read(app + 'SaldoLeve'), 'Contact fixtures in Release'

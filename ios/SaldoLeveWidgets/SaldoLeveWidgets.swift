@@ -170,7 +170,6 @@ struct SaldoWidgetView: View {
     private var lockScreen: some View { VStack(alignment: .leading, spacing: 3) { Text(title).font(.headline); Text("Hoje \(entry.feed?.taskCounts["today"] ?? 0) · Atrasadas \(entry.feed?.taskCounts["overdue"] ?? 0)").font(.caption); if let item = ordered.first { Text(item.subtitle ?? item.title).font(.caption).lineLimit(1) } else { Text(entry.error ?? "Tudo em ordem").font(.caption).lineLimit(2) } } }
     private func updated(_ feed: SaldoWidgetFeed) -> String { let date = ISO8601DateFormatter().date(from: feed.generatedAt); return (entry.cached ? "Consulta " : "Atualizado ") + (date?.formatted(.dateTime.hour().minute().locale(Locale(identifier: "pt_BR"))) ?? "agora") + (feed.limited ? " · parcial" : "") }
 }
-@main
 struct SaldoLeveWidgets: Widget {
     let kind = "SaldoLeveWidgets"
     private var families: [WidgetFamily] {
@@ -182,5 +181,26 @@ struct SaldoLeveWidgets: Widget {
         AppIntentConfiguration(kind: kind, intent: SaldoWidgetConfiguration.self, provider: SaldoWidgetProvider()) { SaldoWidgetView(entry: $0) }
             .configurationDisplayName("SaldoLeve").description("Tarefas, pendências e agenda do seu dia.")
             .supportedFamilies(families)
+    }
+}
+
+// A separate identity lets the gallery install a portrait widget without
+// reusing a legacy widget instance's size/configuration metadata.
+@available(iOS 27.0, *)
+struct SaldoLevePortraitWidget: Widget {
+    let kind = "SaldoLevePortraitWidgets"
+    var body: some WidgetConfiguration {
+        AppIntentConfiguration(kind: kind, intent: SaldoWidgetConfiguration.self, provider: SaldoWidgetProvider()) { SaldoWidgetView(entry: $0) }
+            .configurationDisplayName("SaldoLeve · Lista ampliada")
+            .description("Lista vertical que ocupa uma página da Tela de Início, com subtotais de tarefas.")
+            .supportedFamilies([.systemExtraLargePortrait])
+    }
+}
+
+@main
+struct SaldoLeveWidgetBundle: WidgetBundle {
+    var body: some Widget {
+        SaldoLeveWidgets()
+        if #available(iOS 27.0, *) { SaldoLevePortraitWidget() }
     }
 }

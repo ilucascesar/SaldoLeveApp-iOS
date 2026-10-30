@@ -87,49 +87,10 @@ struct NativeAgendaView: View {
         }
     }
 }
+// Legacy routes enter the same settings center.
 struct NativeProfileView: View {
     @ObservedObject var store: NativeStore
-    @AppStorage("nativeBiometrics") private var biometrics = false
-    @AppStorage("nativeLocalReminders") private var localReminders = false
-    @State private var logout = false
-    @Environment(\.dismiss) private var dismiss
-    @AppStorage("nativeAppearance") private var appearance = "system"
-    @Environment(\.openURL) private var openURL
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    Label(store.user?.name ?? "", systemImage: "person.crop.circle.fill").font(.title3.bold())
-                    Text(store.user?.login ?? "").foregroundStyle(.secondary)
-                }
-                Section("Aparência") {
-                    Picker("Modo", selection: $appearance) { Text("Sistema").tag("system"); Text("Claro").tag("light"); Text("Escuro").tag("dark") }
-                    Picker("Cor das tarefas", selection: Binding(get: { store.snapshot.preferences.text("theme").isEmpty ? "blue" : store.snapshot.preferences.text("theme") }, set: { theme in
-                        var preferences = store.snapshot.preferences; preferences["theme"] = .string(theme)
-                        Task { do { _ = try await store.mutate("org_preferences", preferences) } catch { store.report(error) } }
-                    })) { Text("Azul").tag("blue"); Text("Verde").tag("green"); Text("Roxo").tag("purple"); Text("Rosa").tag("rose"); Text("Âmbar").tag("amber"); Text("Escuro").tag("dark") }
-                }
-                Section("Neste iPhone") {
-                    Button { dismiss(); DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { store.openedFinance = .init(kind: "layout") } } label: { Label("Layout e personalização", systemImage: "slider.horizontal.3") }
-                    Toggle("Proteger com Face ID ou código", isOn: $biometrics)
-                    NavigationLink { NativeDeviceSettings(store: store) } label: { Label("Aparelhos conectados e login salvo", systemImage: "iphone.gen3") }
-                    NavigationLink { NativeNotificationSettings(store: store) } label: { Label("Notificações e silêncio", systemImage: "bell.badge") }
-                    NavigationLink { NativeWidgetSettings(store: store) } label: { Label("Widgets", systemImage: "square.grid.2x2") }
-                    if let date = store.syncedAt { LabeledContent("Sincronizado", value: date.formatted(date: .abbreviated, time: .shortened)) }
-                    Button("Sincronizar agora") { Task { await store.refresh() } }.disabled(store.refreshing || store.working)
-                }
-                Section("Sistema") {
-                    Button("Abrir versão web") { openURL(store.api.address.home) }
-                    Button("Abrir ajustes do SaldoLeve no iPhone") { if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) } }
-                    LabeledContent("Versão", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
-                }
-                Section { Button("Sair da conta", role: .destructive) { logout = true }.disabled(store.working) }
-            }.navigationTitle("Minha conta").navigationBarTitleDisplayMode(.inline).toolbar { Button("Fechar") { dismiss() } }
-                .confirmationDialog("Sair da conta?", isPresented: $logout, titleVisibility: .visible) {
-                    Button("Sair e limpar dados deste iPhone", role: .destructive) { Task { await store.logout() } }
-                } message: { Text("A cópia de consulta e os lembretes deste aplicativo serão removidos. Os dados confirmados continuam no servidor.") }
-        }
-    }
+    var body: some View { NativeSettingsView(store: store) }
 }
 
 struct NativeHabitsView: View {

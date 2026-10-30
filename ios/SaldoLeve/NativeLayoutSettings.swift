@@ -8,10 +8,13 @@ struct NativeLayoutSettings: View {
     @State private var working = false
     @State private var issue: String?
     @State private var reset = false
-    init(store: NativeStore) { self.store = store; self.platform = store.platform }
+    private let embedded: Bool
+    init(store: NativeStore, embedded: Bool = false) { self.store = store; self.platform = store.platform; self.embedded = embedded }
     @Environment(\.dismiss) private var dismiss
-    var body: some View {
-        NavigationStack {
+    @ViewBuilder var body: some View {
+        if embedded { content } else { NavigationStack { content } }
+    }
+    private var content: some View {
             Form {
                 Section { NativeLayoutPreview(layout: layout) } footer: { Text("Confira a prévia e toque em Salvar. O layout confirmado fica na sua conta e chega aos outros dispositivos.") }
                 Section("Personalizar") {
@@ -21,22 +24,17 @@ struct NativeLayoutSettings: View {
                     destination("Tarefas e captura rápida", icon: "checklist", page: "tasks")
                     destination("Texto, espaço e aparência", icon: "textformat.size", page: "appearance")
                 }
-                Section {
-                    NavigationLink { NativeWidgetSettings(store: store) } label: { Label("Configurações dos widgets", systemImage: "square.grid.2x2") }
-                    NavigationLink { NativeNotificationSettings(store: store) } label: { Label("Notificações e contador", systemImage: "bell.badge") }
-                }
                 Section { Button("Restaurar layout padrão", role: .destructive) { reset = true } }
             if let issue { Section { Text(issue).font(.footnote) } }
             }.disabled(!platform.canWrite || working).navigationTitle("Layout e personalização").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() }.disabled(working) }
+                    if !embedded { ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() }.disabled(working) } }
                     ToolbarItem(placement: .confirmationAction) { Button("Salvar") { Task { working = true; defer { working = false }; do { try await platform.saveLayout(layout, revision: revision); dismiss() } catch { issue = error.localizedDescription } } }.disabled(!platform.canWrite || working) }
                 }
                 .task { await platform.refresh(); layout = store.layout; revision = platform.snapshot.revision }
                 .onChange(of: store.offline) { offline in guard offline, !working else { return }; layout = store.layout; revision = platform.snapshot.revision; issue = "Sem conexão. Alterações de layout não confirmadas foram descartadas." }
                 .onChange(of: platform.snapshot.revision) { next in guard !working else { return }; layout = store.layout; revision = next; issue = "Layout atualizado com a versão do servidor." }
                 .confirmationDialog("Restaurar o layout padrão?", isPresented: $reset, titleVisibility: .visible) { Button("Restaurar layout") { layout = NativeLayoutPreferences() } } message: { Text("Seus dados, pagamentos, tarefas e notificações permanecem salvos.") }
-        }
     }
     private func destination(_ title: String, icon: String, page: String) -> some View { NavigationLink { NativeLayoutDetail(layout: $layout, page: page, title: title) } label: { Label(title, systemImage: icon) } }
 }
@@ -55,7 +53,6 @@ struct NativeLayoutDetail: View {
     @Binding var layout: NativeLayoutPreferences
     let page: String
     let title: String
-    @AppStorage("nativeAppearance") private var appearance = "system"
     var body: some View {
         Form {
             switch page {
@@ -124,7 +121,6 @@ struct NativeLayoutDetail: View {
         Group {
             Section { NativeLayoutPreview(layout: layout) }
             Section {
-                Picker("Aparência", selection: $appearance) { Text("Sistema").tag("system"); Text("Clara").tag("light"); Text("Escura").tag("dark") }
                 Picker("Espaçamento", selection: $layout.density) { Text("Compacto").tag("compact"); Text("Confortável").tag("comfortable"); Text("Amplo").tag("spacious") }
                 LabeledContent("Tamanho do texto", value: "\(Int(layout.textScale * 100))%")
                 Slider(value: $layout.textScale, in: 0.85...1.3, step: 0.05)

@@ -114,10 +114,9 @@ struct NativeTaskList: View {
                 Button { history = true } label: { Label("Histórico de pagamentos", systemImage: "clock.arrow.circlepath") }
                 if let currentCategory, currentCategory.fields.text("ownerId") == store.user?.id { Button { editingCategory = currentCategory; categoryEditor = true } label: { Label("Editar categoria", systemImage: "folder.badge.gearshape") } }
                 Button { tools = true } label: { Label("Resumo, importar e exportar", systemImage: "square.and.arrow.up") }
-                Button { profile = true } label: { Label("Minha conta e aparência", systemImage: "person.crop.circle") }
+                Button { profile = true } label: { Label("Configurações", systemImage: "gearshape") }
                 if store.platform.enabled("search") { Button { store.openedFinance = .init(kind: "search") } label: { Label(store.platform.label("search"), systemImage: "magnifyingglass") } }
                 if store.platform.enabled("birthdays") { Button { store.openedFinance = .init(kind: "birthdays") } label: { Label(store.platform.label("birthdays"), systemImage: "gift") } }
-                Button { store.openedFinance = .init(kind: "layout") } label: { Label("Personalizar layout", systemImage: "slider.horizontal.3") }
                 Button { store.menuOpen = true } label: { Label("Menu do aplicativo", systemImage: "square.grid.2x2") }
             } label: { Image(systemName: "ellipsis").font(.system(size: 21)).frame(width: 44, height: 44) }.accessibilityLabel("Mais opções")
         }.foregroundStyle(.primary).padding(.horizontal, 7).padding(.top, 4).padding(.bottom, 2).background(nativeCanvas)
@@ -190,7 +189,7 @@ struct NativeTaskList: View {
                 }.padding(.horizontal, 10).padding(.vertical, 10)
             }
             Divider()
-            VStack(spacing: 0) { drawerLine("Menu do aplicativo", icon: "square.grid.2x2", count: 0, active: false, color: nativeBlue) { closeDrawer(); store.menuOpen = true }; drawerLine("Personalizar layout", icon: "slider.horizontal.3", count: 0, active: false, color: .secondary) { closeDrawer(); store.openedFinance = .init(kind: "layout") }; drawerLine("Preferências e avisos", icon: "gearshape", count: 0, active: false, color: .secondary) { closeDrawer(); profile = true } }.padding(.horizontal, 10).padding(.vertical, 6)
+            VStack(spacing: 0) { drawerLine("Menu do aplicativo", icon: "square.grid.2x2", count: 0, active: false, color: nativeBlue) { closeDrawer(); store.menuOpen = true }; drawerLine("Configurações", icon: "gearshape", count: 0, active: false, color: .secondary) { closeDrawer(); profile = true } }.padding(.horizontal, 10).padding(.vertical, 6)
         }
     }
     private var folders: [String] { Array(Set(store.snapshot.lists.filter { !$0.archived }.map { $0.fields.text("folder") })).sorted() }
