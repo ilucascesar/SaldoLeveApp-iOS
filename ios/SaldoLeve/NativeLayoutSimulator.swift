@@ -368,8 +368,7 @@ struct NativeSimTask: View {
         return NativeTask(["id": .string("sim"), "title": .string("Financiamento do carro"), "body": .string("Débito automático no dia 10."), "status": .string("todo"), "listId": .string(""), "moneyMode": .string("pay"), "checklist": .array(checks)])
     }
     var body: some View {
-        let current = task, style = layout.taskDetailLayout, checks = current.checks
-        let groups = NativeTaskDetailLayout.groups(checks, grouping: layout.taskDetailGrouping)
+        let current = task, checks = current.checks
         VStack(spacing: 0) {
             NativeSimStatusBar()
             HStack { Text("Fechar"); Spacer(); Text(current.categoryID.isEmpty ? "Financeiro" : store.category(current)).font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary); Spacer(); Text("Salvar").bold() }.font(.system(size: 16)).foregroundStyle(nativeBlue).padding(.horizontal, 18).padding(.vertical, 10)
@@ -379,23 +378,8 @@ struct NativeSimTask: View {
                     HStack(spacing: 7) { NativeChip(title: current.categoryID.isEmpty ? "Financeiro" : store.category(current), icon: "circle.fill"); NativeChip(title: current.moneyMode == "receive" ? "A receber" : current.isMoney ? "A pagar" : "Normal", active: current.isMoney); NativeChip(title: "Avisos", icon: "alarm") }
                     if !current.fields.text("body").isEmpty { Text(current.fields.text("body")).font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(2) }
                 }.listRowSeparator(.hidden).listRowBackground(Color.clear)
-                if layout.taskDetailProgress && checks.count > 1 {
-                    Section { NativeTaskProgressHeader(done: checks.filter(\.done).count, total: checks.count, style: style, amount: current.isMoney ? "A pagar: " + NativeDate.money(current.pendingAmount) : nil) }
-                        .listRowSeparator(.hidden).listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 6, leading: 14, bottom: 6, trailing: 14))
-                }
-                ForEach(groups) { group in
-                    Section {
-                        if !(group.id == "done" && !layout.taskDetailExpandDone) {
-                            ForEach(Array(group.ids.enumerated()), id: \.element) { offset, id in
-                                let check = checks.first { $0.id == id }
-                                NativeInlineCheckRow(fields: .constant(check?.fields ?? [:]), money: current.isMoney, editable: true, layoutStyle: style, showMetadata: layout.taskDetailMetadata, attach: {}, remove: {})
-                                    .modifier(NativeTaskDetailRowChrome(style: style, done: check?.done ?? false, first: offset == 0, last: offset == group.ids.count - 1))
-                            }
-                        }
-                    } header: {
-                        if group.title.isEmpty { HStack { Text("Subtarefas"); Spacer(); Text("\(checks.filter(\.done).count)/\(checks.count)") }.font(.system(size: 12)).textCase(nil) }
-                        else { NativeTaskDetailGroupHeader(group: group, collapsed: group.id == "done" && !layout.taskDetailExpandDone) }
-                    }
+                NativeTaskChecklist(checks: checks, money: current.isMoney, receive: current.moneyMode == "receive", pendingAmount: current.isMoney ? current.pendingAmount : nil, layout: layout, collapsed: layout.taskDetailExpandDone ? [] : ["done"]) { check, presentation in
+                    NativeInlineCheckRow(fields: .constant(check.fields), money: current.isMoney, editable: true, presentation: presentation, attach: {}, remove: {})
                 }
             }.listStyle(.plain).scrollContentBackground(.hidden).scrollDisabled(true)
         }.background(nativePaper)

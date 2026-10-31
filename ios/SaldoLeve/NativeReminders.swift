@@ -9,6 +9,8 @@ final class NativeReminders: NSObject, UNUserNotificationCenterDelegate {
     private let center = UNUserNotificationCenter.current()
     private var expenseRecords: [JSONObject] = []
     private var birthdays: [NativeBirthday]?
+    private var places: [NativePlace] = []
+    private var lastSnapshot = NativeSnapshot()
     override init() { super.init(); center.delegate = self }
     func enable(_ snapshot: NativeSnapshot) async throws -> Bool {
         let granted = try await center.requestAuthorization(options: [.alert, .sound, .badge])
@@ -16,9 +18,34 @@ final class NativeReminders: NSObject, UNUserNotificationCenterDelegate {
         if granted { update(snapshot) }
         return granted
     }
-    func update(_ snapshot: NativeSnapshot, expenseRecords: [JSONObject]? = nil, birthdays: [NativeBirthday]? = nil) {
+    // Pausing comes from the app icon quick actions or from Notificações. The
+    // alerts already scheduled are held back directly, so this works even
+    // before the app reaches the server; the next rebuild applies the pause too.
+    func pause(until date: Date?) {
+        NativeAlertPause.set(date)
+        NativeQuickActions.refresh()
+        if let date { Task { await hold(until: date) } }
+        else if !lastSnapshot.items.isEmpty { update(lastSnapshot) }
+    }
+    private func hold(until: Date) async {
+        await queued?.value
+        let pending = await center.pendingNotificationRequests().filter { $0.identifier.hasPrefix("sl-task-") }
+        var later = Set<String>(), early: [(UNNotificationRequest, Date)] = []
+        for request in pending {
+            guard let trigger = request.trigger as? UNTimeIntervalNotificationTrigger, let next = trigger.nextTriggerDate() else { continue }
+            if next >= until { later.insert(request.content.threadIdentifier) } else { early.append((request, next)) }
+        }
+        center.removePendingNotificationRequests(withIdentifiers: early.map(\.0.identifier))
+        var moved = Set<String>()
+        for (request, _) in early.sorted(by: { $0.1 < $1.1 }) where !later.contains(request.content.threadIdentifier) && moved.insert(request.content.threadIdentifier).inserted {
+            try? await center.add(UNNotificationRequest(identifier: request.identifier, content: request.content, trigger: UNTimeIntervalNotificationTrigger(timeInterval: max(1, until.timeIntervalSinceNow), repeats: false)))
+        }
+    }
+    func update(_ snapshot: NativeSnapshot, expenseRecords: [JSONObject]? = nil, birthdays: [NativeBirthday]? = nil, places: [NativePlace]? = nil) {
         if let expenseRecords { self.expenseRecords = expenseRecords }
         if let birthdays { self.birthdays = birthdays }
+        if let places { self.places = places }
+        lastSnapshot = snapshot
         queued?.cancel()
         let preceding = queued
         queued = Task { [weak self] in
@@ -36,15 +63,29 @@ final class NativeReminders: NSObject, UNUserNotificationCenterDelegate {
             guard [.authorized, .provisional, .ephemeral].contains(settings.authorizationStatus), !Task.isCancelled else { return }
             let now = Date()
             let expenses = self.expenseRecords, birthdayRecords = self.birthdays ?? []
+            // Location alerts share the iOS limit of 64 pending requests.
+            let locations = NativeLocationAccess.allowed && preferences.tasks ? NativeLocationReminder.groups(snapshot, places: self.places) : []
+            let pause = NativeAlertPause.until(now: now)
             let computation = await Task.detached(priority: .utility) {
                 let dueDates = snapshot.items.filter { $0.isActive && !$0.paused }.compactMap(\.nextDate).sorted()
-                let all = NativeReminderPlan.build(snapshot, now: now, preferences: preferences) + NativeExpenseReminderPlan.build(expenses, now: now, preferences: preferences)
-                let birthdayAlarms = Array(NativeBirthdayPlan.build(birthdayRecords, now: now, preferences: preferences).prefix(20))
-                let otherAlarms = Array(all.sorted(by: { $0.date == $1.date ? $0.id < $1.id : $0.date < $1.date }).prefix(max(0, 60 - birthdayAlarms.count - preservedBirthdayCount)))
+                let all = NativeAlertPause.filter(NativeReminderPlan.build(snapshot, now: now, preferences: preferences) + NativeExpenseReminderPlan.build(expenses, now: now, preferences: preferences), until: pause)
+                let birthdayAlarms = Array(NativeAlertPause.filter(NativeBirthdayPlan.build(birthdayRecords, now: now, preferences: preferences), until: pause).prefix(20))
+                let otherAlarms = Array(all.sorted(by: { $0.date == $1.date ? $0.id < $1.id : $0.date < $1.date }).prefix(max(0, 60 - locations.count - birthdayAlarms.count - preservedBirthdayCount)))
                 let alarms = (birthdayAlarms + otherAlarms).sorted { $0.date == $1.date ? $0.id < $1.id : $0.date < $1.date }
                 return (dueDates, alarms)
             }.value
             guard !Task.isCancelled else { return }
+            for group in locations {
+                guard !Task.isCancelled else { return }
+                let content = UNMutableNotificationContent()
+                let verb = group.trigger == "leave" ? "Ao sair de " : "Ao chegar em "
+                content.title = preferences.showDetails ? verb + group.place.name : "SaldoLeve"
+                content.body = preferences.showDetails ? (group.titles.count == 1 ? group.titles[0] : "\(group.titles.count) tarefas: " + group.titles.prefix(4).joined(separator: ", ") + (group.titles.count > 4 ? "…" : "")) : "Você tem um lembrete por local. Abra o app para consultar."
+                content.sound = preferences.sound ? .default : nil
+                content.threadIdentifier = "sl-task-location"
+                content.userInfo = ["taskID": group.taskIDs.count == 1 ? group.taskIDs[0] : ""]
+                try? await center.add(UNNotificationRequest(identifier: "sl-task-location-\(group.place.id)-\(group.trigger)", content: content, trigger: NativeLocationAccess.trigger(group)))
+            }
             if preferences.badge { UIApplication.shared.applicationIconBadgeNumber = computation.0.prefix { $0 <= now }.count }
             for reminder in computation.1 {
                 guard !Task.isCancelled else { return }

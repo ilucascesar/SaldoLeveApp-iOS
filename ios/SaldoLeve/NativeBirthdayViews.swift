@@ -13,17 +13,39 @@ import UserNotifications
     @State private var importing = false
     @State private var settings = false
     @State private var issue: String?
+    @State private var completing = Set<String>()
+    // Sorted by the occurrence the checkbox refers to, so marking a birthday
+    // as done keeps the person in the same place.
     private var filtered: [NativeBirthday] {
-        platform.snapshot.birthdays.filter { value in
-            guard group.isEmpty || value.group == group, search.isEmpty || value.name.localizedStandardContains(search), let date = value.nextDate() else { return false }
+        let now = Date()
+        return platform.snapshot.birthdays.compactMap { value -> (NativeBirthday, Date)? in
+            guard group.isEmpty || value.group == group, search.isEmpty || value.name.localizedStandardContains(search), let date = value.currentOccurrence(now: now) else { return nil }
             let c = value.calendar
             switch scope {
-            case "today": return c.isDateInToday(date)
-            case "next": return date < c.date(byAdding: .day, value: 31, to: c.startOfDay(for: Date()))!
-            case "month": return c.component(.month, from: date) == c.component(.month, from: Date())
-            default: return true
+            case "today": return c.isDateInToday(date) ? (value, date) : nil
+            case "next": return date < c.date(byAdding: .day, value: 31, to: c.startOfDay(for: now))! ? (value, date) : nil
+            case "month": return c.component(.month, from: date) == c.component(.month, from: now) ? (value, date) : nil
+            default: return (value, date)
             }
-        }.sorted { ($0.nextDate() ?? .distantFuture) == ($1.nextDate() ?? .distantFuture) ? $0.name.localizedStandardCompare($1.name) == .orderedAscending : ($0.nextDate() ?? .distantFuture) < ($1.nextDate() ?? .distantFuture) }
+        }.sorted { $0.1 == $1.1 ? $0.0.name.localizedStandardCompare($1.0.name) == .orderedAscending : $0.1 < $1.1 }.map(\.0)
+    }
+    private func toggle(_ value: NativeBirthday) {
+        guard !completing.contains(value.id) else { return }
+        let done = !value.isCompleted()
+        completing.insert(value.id)
+        Task {
+            defer { completing.remove(value.id) }
+            do { try await platform.setCompleted(value, done); issue = nil; UINotificationFeedbackGenerator().notificationOccurred(.success) }
+            catch { issue = error.localizedDescription }
+        }
+    }
+    private func status(_ value: NativeBirthday, _ date: Date) -> (String, Color) {
+        let c = value.calendar, days = c.dateComponents([.day], from: c.startOfDay(for: Date()), to: c.startOfDay(for: date)).day ?? 0
+        let age = value.age(at: date).map { " · \($0) anos" } ?? ""
+        if value.isCompleted() { return ((days == 0 ? "Hoje" : days < 0 ? "Há \(-days) dia(s)" : date.formatted(.dateTime.day().month(.wide))) + age + " · Parabéns enviados", .green) }
+        if days < 0 { return ("Atrasado há \(-days) dia(s)" + age, .red) }
+        if days == 0 { return ("Hoje" + age, .orange) }
+        return ((days == 1 ? "Amanhã" : date.formatted(.dateTime.day().month(.wide))) + age, nativeBlue)
     }
     var body: some View {
         NavigationStack {
@@ -38,6 +60,11 @@ import UserNotifications
                 Section {
                     Button { editing = .fresh(config: platform.snapshot.config) } label: { Label("Cadastrar aniversário", systemImage: "plus.circle") }.disabled(!platform.canWrite).accessibilityIdentifier("birthday-add")
                     Button { importing = true } label: { Label("Importar aniversários dos Contatos", systemImage: "person.crop.rectangle.stack") }.disabled(!platform.canWrite).accessibilityIdentifier("birthday-import")
+                    if platform.enabled("contactsSync") && NativeBirthdayContacts.authorized {
+                        Button { Task { await platform.syncContactsIfNeeded(force: true) } } label: { Label("Sincronizar com os Contatos agora", systemImage: "arrow.triangle.2.circlepath") }.disabled(!platform.canWrite)
+                    }
+                } footer: {
+                    if platform.enabled("contactsSync") { Text(NativeBirthdayContacts.authorized ? "Aniversários novos ou alterados nos Contatos entram automaticamente ao abrir o SaldoLeve." : "Depois de importar uma vez e permitir os Contatos, novos aniversários entram automaticamente.") }
                 }
                 Section { Button { settings = true } label: { Label("Configurações de aniversariantes", systemImage: "gearshape") } }
                 if !store.networkAvailable || store.offline { Section { Label("Sem conexão · somente consulta", systemImage: "wifi.slash").foregroundStyle(.orange) } }
@@ -45,18 +72,33 @@ import UserNotifications
                 Section("\(filtered.count) aniversariante(s)") {
                     if filtered.isEmpty { Text(platform.text("birthdayEmpty", fallback: "Nenhum aniversário neste filtro.")).foregroundStyle(.secondary) }
                     ForEach(filtered) { value in
-                        Button { editing = value } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: "gift.fill").foregroundStyle(nativeBlue).font(.title2)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(value.name).font(.headline).foregroundStyle(.primary)
-                                    Text(value.dateLabel + " · " + value.group).font(.caption).foregroundStyle(.secondary)
-                                    if let date = value.nextDate() { Text((value.calendar.isDateInToday(date) ? "Hoje" : date.formatted(.dateTime.day().month(.wide))) + (value.age(at: date).map { " · \($0) anos" } ?? "")).font(.subheadline).foregroundStyle(nativeBlue) }
-                                }
-                                Spacer()
-                                Image(systemName: value.enabled ? "bell" : "bell.slash").foregroundStyle(.secondary)
-                            }.padding(.vertical, 4)
-                        }.buttonStyle(.plain).accessibilityIdentifier("birthday-row-" + value.id)
+                        let done = value.isCompleted()
+                        HStack(spacing: 12) {
+                            Button { toggle(value) } label: {
+                                Image(systemName: done ? "checkmark.circle.fill" : "circle").font(.system(size: 25, weight: done ? .regular : .light))
+                                    .foregroundStyle(done ? Color.green.opacity(0.8) : value.isLate() ? Color.red : nativeBlue).frame(width: 32, height: 40)
+                            }.buttonStyle(.borderless).disabled(!platform.canWrite || completing.contains(value.id))
+                                .accessibilityLabel(done ? "Reabrir aniversário de " + value.name : "Concluir aniversário de " + value.name).accessibilityIdentifier("birthday-done-" + value.id)
+                            Button { editing = value } label: {
+                                HStack(spacing: 10) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(value.name).font(.headline).foregroundStyle(done ? Color.secondary : Color.primary).strikethrough(done, color: .secondary)
+                                        Text(value.dateLabel + " · " + value.group).font(.caption).foregroundStyle(.secondary)
+                                        if let date = value.currentOccurrence() { let info = status(value, date); Text(info.0).font(.subheadline).foregroundStyle(info.1) }
+                                    }
+                                    Spacer()
+                                    if completing.contains(value.id) { ProgressView() }
+                                    else { Image(systemName: value.enabled ? (value.persistent ? "bell.badge" : "bell") : "bell.slash").foregroundStyle(.secondary) }
+                                }.padding(.vertical, 4).contentShape(Rectangle())
+                            }.buttonStyle(.plain).accessibilityIdentifier("birthday-row-" + value.id)
+                        }
+                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                            Button { toggle(value) } label: { Label(done ? "Reabrir" : "Concluir", systemImage: done ? "arrow.uturn.backward" : "checkmark") }.tint(done ? .gray : .green).disabled(!platform.canWrite)
+                        }
+                        .contextMenu {
+                            Button { toggle(value) } label: { Label(done ? "Reabrir" : "Marcar como concluído", systemImage: done ? "arrow.uturn.backward" : "checkmark.circle") }.disabled(!platform.canWrite)
+                            Button { editing = value } label: { Label("Editar", systemImage: "pencil") }
+                        }
                     }
                 }
             }.navigationTitle(platform.label("birthdays")).navigationBarTitleDisplayMode(.inline)
@@ -115,6 +157,15 @@ import UserNotifications
                         }))
                     }
                     Text("Escolha até cinco avisos. Eles respeitam o silêncio configurado no aplicativo.").font(.caption).foregroundStyle(.secondary)
+                    Toggle("Avisos persistentes até concluir", isOn: Binding(get: { value.persistent }, set: { value.fields["persistent"] = .bool($0) }))
+                    if value.persistent {
+                        Picker("Repetir a cada", selection: Binding(get: { value.repeatMinutes }, set: { value.fields["overdueMinutes"] = .number(Double($0)) })) { ForEach([60, 120, 240, 360, 480], id: \.self) { Text("\($0 / 60) hora(s)").tag($0) } }
+                    }
+                }
+                if !original.fields.text("id").isEmpty {
+                    Section {
+                        Toggle("Parabéns enviados", isOn: Binding(get: { value.isCompleted() }, set: { value = value.settingCompleted($0) }))
+                    } footer: { Text(value.currentOccurrence().map { "Refere-se ao aniversário de " + $0.formatted(.dateTime.day().month(.wide).year()) + ". Concluído, ele para de avisar e continua no mesmo lugar da lista." } ?? "") }
                 }
                 if let issue { Section { Text(issue).foregroundStyle(.red).font(.footnote) } }
                 if !original.fields.text("id").isEmpty { Section { Button("Excluir aniversário", role: .destructive) { removing = true } } }

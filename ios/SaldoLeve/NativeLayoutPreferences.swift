@@ -48,19 +48,29 @@ struct NativeLayoutPreferences: Codable, Equatable {
     var taskDetailProgress = true
     var taskDetailMetadata = true
     var taskDetailExpandDone = true
-    static let taskDetailStyles = ["elegant", "cards", "timeline", "minimal"]
+    var taskDetailHighlightNext = true
+    var taskDetailNumbers = false
+    var taskDetailAmounts = true
+    var taskDetailPills = true
+    var taskDetailDensity = "regular"
+    static let taskDetailStyles = ["elegant", "cards", "timeline", "ledger", "minimal"]
     static let taskDetailGroupings = ["status", "date", "none"]
     // Choosing a style starts from its recommended options; each one can still
     // be changed afterwards without losing the chosen style.
     mutating func applyTaskDetailPreset(_ style: String) {
         guard Self.taskDetailStyles.contains(style) else { return }
         taskDetailLayout = style
+        // grouping, progress, metadata, completed open, next highlighted, numbers, situation, density
+        let preset: (String, Bool, Bool, Bool, Bool, Bool, Bool, String)
         switch style {
-        case "cards": taskDetailGrouping = "status"; taskDetailProgress = true; taskDetailMetadata = true; taskDetailExpandDone = false
-        case "timeline": taskDetailGrouping = "date"; taskDetailProgress = true; taskDetailMetadata = true; taskDetailExpandDone = true
-        case "minimal": taskDetailGrouping = "none"; taskDetailProgress = false; taskDetailMetadata = false; taskDetailExpandDone = true
-        default: taskDetailGrouping = "status"; taskDetailProgress = true; taskDetailMetadata = true; taskDetailExpandDone = true
+        case "cards": preset = ("status", true, true, false, true, false, true, "regular")
+        case "timeline": preset = ("date", true, true, true, true, false, true, "regular")
+        case "ledger": preset = ("none", true, true, true, true, true, false, "compact")
+        case "minimal": preset = ("none", false, false, true, false, false, false, "compact")
+        default: preset = ("status", true, true, true, true, false, true, "regular")
         }
+        taskDetailGrouping = preset.0; taskDetailProgress = preset.1; taskDetailMetadata = preset.2; taskDetailExpandDone = preset.3
+        taskDetailHighlightNext = preset.4; taskDetailNumbers = preset.5; taskDetailPills = preset.6; taskDetailDensity = preset.7; taskDetailAmounts = true
     }
     var taskDateFilter: NativeTaskDateFilter {
         get { NativeTaskDateFilter(period: taskDefaultPeriod, field: taskDefaultPeriodField, from: taskDefaultFrom, to: taskDefaultTo) }
@@ -82,6 +92,7 @@ struct NativeLayoutPreferences: Codable, Equatable {
         if !tabs.contains(startPage) { startPage = "tasks" }
         if !Self.taskDetailStyles.contains(taskDetailLayout) { taskDetailLayout = "elegant" }
         if !Self.taskDetailGroupings.contains(taskDetailGrouping) { taskDetailGrouping = "status" }
+        if !["regular", "compact"].contains(taskDetailDensity) { taskDetailDensity = "regular" }
         if !["compact", "comfortable", "spacious"].contains(density) { density = "comfortable" }
         textScale = textScale.isFinite ? min(1.3, max(0.85, textScale)) : 1
         cardRadius = cardRadius.isFinite ? min(30, max(8, cardRadius)) : 20

@@ -388,6 +388,88 @@ enum NativeQuickCapture {
     }
 }
 
+// Reads phrases dictated to Siri, such as "comprar pão daqui a 2 horas",
+// "ligar para o João amanhã às 9" or "pagar a luz em meia hora".
+// The due time is rounded up to the next quarter hour, as the server requires.
+enum NativeSpokenReminder {
+    struct Result: Equatable { var title: String; var due: Date? }
+    private static let numbers: [String: Double] = ["um": 1, "uma": 1, "dois": 2, "duas": 2, "três": 3, "tres": 3, "quatro": 4, "cinco": 5, "seis": 6, "sete": 7, "oito": 8, "nove": 9, "dez": 10, "onze": 11, "doze": 12, "quinze": 15, "vinte": 20, "trinta": 30, "quarenta": 40, "quarenta e cinco": 45, "meia": 0.5]
+    static func parse(_ input: String, now: Date = Date(), calendar: Calendar = .current) -> Result {
+        var text = " " + input.trimmingCharacters(in: .whitespacesAndNewlines) + " "
+        var due: Date?
+        func take(_ pattern: String) -> [String]? {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+                  let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+                  let whole = Range(match.range, in: text) else { return nil }
+            let groups = (0..<match.numberOfRanges).map { index -> String in
+                guard let range = Range(match.range(at: index), in: text) else { return "" }
+                return String(text[range])
+            }
+            text.replaceSubrange(whole, with: " ")
+            return groups
+        }
+        func amount(_ raw: String) -> Double? {
+            let value = raw.lowercased().trimmingCharacters(in: .whitespaces)
+            if let number = Double(value.replacingOccurrences(of: ",", with: ".")) { return number }
+            return numbers[value]
+        }
+        let quantity = #"(\d+(?:[.,]\d+)?|uma|um|duas|dois|tr[eê]s|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|quinze|vinte|trinta|quarenta(?: e cinco)?|meia)"#
+        // "daqui a 2 horas", "em 30 minutos", "daqui meia hora", "daqui a 1 hora e meia"
+        if let parts = take(#"\s(?:daqui\s+a|daqui|dentro\s+de|em)\s+"# + quantity + #"\s*(minutos?|min|horas?|h|dias?)(\s+e\s+meia)?(?=\s)"#),
+           let value = amount(parts[1]) {
+            let unit = parts[2].lowercased()
+            var seconds = value * (unit.hasPrefix("d") ? 86400 : unit.hasPrefix("h") ? 3600 : 60)
+            if !parts[3].isEmpty && unit.hasPrefix("h") { seconds += 1800 }
+            due = now.addingTimeInterval(seconds)
+        }
+        var day: Date?
+        if let parts = take(#"\s(hoje|amanh[ãa]|depois\s+de\s+amanh[ãa])(?=\s)"#) {
+            let word = parts[1].lowercased()
+            day = calendar.date(byAdding: .day, value: word.hasPrefix("hoje") ? 0 : word.hasPrefix("depois") ? 2 : 1, to: calendar.startOfDay(for: now))
+        }
+        if let parts = take(#"\s(?:às|as|ao|à|a)\s+(\d{1,2})(?:[:h](\d{2}))?\s*(?:h|horas?)?(?:\s+da\s+(manh[ãa]|tarde|noite))?(?=\s)"#),
+           var hour = Int(parts[1]), hour < 24 {
+            let minute = Int(parts[2]) ?? 0
+            let period = parts[3].lowercased()
+            if (period.hasPrefix("tarde") || period.hasPrefix("noite")) && hour < 12 { hour += 12 }
+            var base = day ?? calendar.startOfDay(for: now)
+            if var candidate = calendar.date(bySettingHour: hour, minute: min(59, minute), second: 0, of: base) {
+                // "às 9" said in the evening means tomorrow morning.
+                if day == nil && candidate <= now { base = calendar.date(byAdding: .day, value: 1, to: base)!; candidate = calendar.date(bySettingHour: hour, minute: min(59, minute), second: 0, of: base) ?? candidate }
+                due = candidate
+            }
+        } else if let day, due == nil {
+            due = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: day)
+            if let value = due, value <= now { due = NativeDate.quarter(now.addingTimeInterval(3600)) }
+        }
+        var title = text.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+        for prefix in ["me avise de ", "me avisa de ", "me lembre de ", "me lembra de ", "lembrar de ", "avisar de ", "me avise para ", "me lembre para "] where title.lowercased().hasPrefix(prefix) {
+            title = String(title.dropFirst(prefix.count)); break
+        }
+        if let first = title.first { title = first.uppercased() + title.dropFirst() }
+        return Result(title: String(title.prefix(200)), due: due.map(NativeDate.quarter))
+    }
+}
+
+// The situation of a subtask, shared by every style of the opened task.
+enum NativeCheckState {
+    static func of(_ check: NativeCheck, now: Date = Date(), calendar: Calendar = .current) -> String {
+        if check.done { return "done" }
+        guard let date = check.date else { return "nodate" }
+        let today = calendar.startOfDay(for: now)
+        if date < today { return "overdue" }
+        return calendar.isDate(date, inSameDayAs: today) ? "today" : "upcoming"
+    }
+    static func days(_ check: NativeCheck, now: Date = Date(), calendar: Calendar = .current) -> Int? {
+        guard let date = check.date else { return nil }
+        return calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: date)).day
+    }
+    // The pending subtask that is due first.
+    static func next(_ checks: [NativeCheck]) -> String? {
+        checks.filter { !$0.done && !$0.paused }.min { ($0.date ?? .distantFuture) < ($1.date ?? .distantFuture) }?.id
+    }
+}
+
 enum NativeMonth {
     static func key(_ date: Date, zone: String = "America/Sao_Paulo") -> String {
         NativeDate.formatter("yyyy-MM", zone: zone).string(from: date)

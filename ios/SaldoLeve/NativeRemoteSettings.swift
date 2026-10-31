@@ -77,7 +77,17 @@ enum NativeRemoteSettingsPage: Equatable { case menus, features, birthdays }
                             if enabled { if offsets.count < 5 { offsets.insert(offset) } } else { offsets.remove(offset) }; values["daysBefore"] = .array(offsets.sorted().map { .number(Double($0)) }); config["birthdayDefaults"] = .object(values)
                         }))
                     }
+                    Toggle("Avisos persistentes até concluir", isOn: flag("birthdayDefaults", "persistent"))
+                    if config.record("birthdayDefaults")["persistent"]?.bool ?? true {
+                        Picker("Repetir a cada", selection: Binding(get: { let value = config.record("birthdayDefaults").integer("overdueMinutes"); return [60, 120, 240, 360, 480].contains(value) ? value : 60 }, set: { var values = config.record("birthdayDefaults"); values["overdueMinutes"] = .number(Double($0)); config["birthdayDefaults"] = .object(values) })) {
+                            ForEach([60, 120, 240, 360, 480], id: \.self) { Text("\($0 / 60) hora(s)").tag($0) }
+                        }
+                    }
+                    Text("Como nas tarefas: depois do horário do aniversário, o aviso se repete até você marcar a pessoa como concluída (por até 2 dias), respeitando o silêncio.").font(.footnote).foregroundStyle(.secondary)
                 }
+                Section {
+                    Toggle("Sincronizar com os Contatos do iPhone", isOn: flag("features", "contactsSync"))
+                } header: { Text("Contatos") } footer: { Text("Com o acesso aos Contatos permitido, aniversários novos ou alterados no iPhone entram automaticamente ao abrir o SaldoLeve. Somente nome e data são enviados; nada é excluído quando um contato some.") }
                 Section("Novos cadastros") { TextField("Grupo para novos aniversariantes", text: string("birthdayDefaults", "group", fallback: "Amigos")) }
                 }
                 if let issue = issue ?? platform.issue { Section { Text(issue).font(.footnote).foregroundStyle(.secondary) } }

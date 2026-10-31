@@ -34,6 +34,12 @@ struct NativeTaskEditor: View {
     @State private var pauseMenu = false
     @State private var moneyOptions = false
     @State private var remindersOptions = false
+    @State private var locationOptions = false
+    private var locationLabel: String {
+        guard let reminder = NativeLocationReminder(task.fields) else { return "Local" }
+        let name = NativePlace.list(store.platform.snapshot.config).first { $0.id == reminder.placeID }?.name ?? "Local"
+        return (reminder.trigger == "leave" ? "Ao sair de " : "Ao chegar em ") + name
+    }
     @State private var showAttachments = false
     @State private var showComments = false
     @State private var reordering = false
@@ -78,13 +84,14 @@ struct NativeTaskEditor: View {
                     Button { showAttachments.toggle() } label: { Image(systemName: "paperclip").frame(width: 38, height: 40) }.disabled(task.id.isEmpty).accessibilityLabel("Anexos e comprovantes")
                     Button { history = true } label: { Image(systemName: "clock.arrow.circlepath").frame(width: 38, height: 40) }.disabled(task.id.isEmpty || saving || loading).accessibilityLabel("Histórico")
                     Spacer()
-                    Text(!serverReady || store.offline ? "Somente consulta" : saving ? "Salvando no servidor…" : task == baseline ? "Dados do servidor" : "Ainda não salvo").font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text(!serverReady || store.offline ? "Somente consulta" : saving ? "Salvando no servidor…" : task == baseline ? "" : "Ainda não salvo").font(.system(size: 11)).foregroundStyle(.secondary)
                 }
             }
             .sheet(isPresented: $installmentGenerator) { NativeInstallmentGenerator(task: $task) }
             .sheet(isPresented: $installmentPayment) { NativeInstallmentPayment(task: $task, initialCheckID: installmentCheckID, commit: { autosave?.cancel(); Task { _ = await commit(closing: false) } }) }
             .sheet(isPresented: $remindersOptions) { NativeReminderOptions(fields: $task.fields) }
             .sheet(isPresented: $moneyOptions) { NativeMoneyOptions(fields: $task.fields) }
+            .sheet(isPresented: $locationOptions) { NativeTaskLocationSheet(fields: $task.fields, store: store) }
             .sheet(isPresented: $reordering) { reorderSheet }
             .sheet(isPresented: Binding(get: { movingCheck != nil }, set: { if !$0 { movingCheck = nil } })) { transferSheet }
             .sheet(isPresented: $suggestions) { NativeSmartSuggestions(store: store, context: "task", text: task.title, excludeID: task.id) { values in
@@ -137,9 +144,9 @@ struct NativeTaskEditor: View {
                         } label: { NativeChip(title: store.category(task), icon: "circle.fill", color: Color(nativeHex: store.snapshot.lists.first(where: { $0.id == task.categoryID })?.fields.text("color") ?? "#1f6feb")) }.disabled(!editable || saving)
                         Button { moneyOptions = true } label: { NativeChip(title: task.moneyMode == "pay" ? "A pagar" : task.moneyMode == "receive" ? "A receber" : "Normal", active: task.isMoney) }.disabled(!editable || saving)
                         Button { remindersOptions = true } label: { NativeChip(title: reminderLabel, icon: "alarm", active: task.fields["repeat"]?.object.text("frequency") == "monthly") }.disabled(!editable || saving)
+                        Button { locationOptions = true } label: { NativeChip(title: locationLabel, icon: "location", active: NativeLocationReminder(task.fields) != nil) }.disabled(!editable || saving).accessibilityIdentifier("task-location")
                     }.padding(.vertical, 3)
                 }
-                if store.platform.enabled("suggestions") { Button { autosave?.cancel(); suggestions = true } label: { Label("Sugerir organização pelo histórico", systemImage: "sparkles") }.font(.caption).disabled(!editable || saving || task.title.count < 3) }
                 TextField("Descrição ou anotações…", text: text("body"), axis: .vertical).font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(2...14).disabled(!editable || loading || closing)
                 if !saveStatus.isEmpty { Label(saveStatus, systemImage: saving ? "arrow.triangle.2.circlepath" : task == baseline ? "checkmark" : "pencil").font(.system(size: 11)).foregroundStyle(.secondary).accessibilityElement(children: .ignore).accessibilityLabel(saveStatus).accessibilityIdentifier("task-save-status") }
                 if let syncNotice {
@@ -150,12 +157,6 @@ struct NativeTaskEditor: View {
                     }.buttonStyle(.borderless).padding(.vertical, 6)
                 }
             }.listRowSeparator(.hidden).listRowBackground(Color.clear)
-            if task.isMoney && !task.checks.isEmpty {
-                Section {
-                    Button { openPayment() } label: { Label("Pagar / antecipar parcelas", systemImage: "creditcard").font(.headline) }.disabled(!editable || saving || !store.canWrite)
-                    Text("Valor original + valor pago, com desconto automático.").font(.caption).foregroundStyle(.secondary)
-                }
-            }
             checklistSection
             if task.isMoney && !task.checks.isEmpty { NativeTaskMoneySummary(task: task) }
             if showAttachments { attachmentsSection }
@@ -163,7 +164,7 @@ struct NativeTaskEditor: View {
             Section {
                 DisclosureGroup("Mais opções") {
                     Button("Gerar parcelas ou série") { installmentGenerator = true }.disabled(!editable || saving)
-                    if task.isMoney && !task.checks.isEmpty { Button("Pagar / antecipar parcelas selecionadas") { openPayment() }.disabled(!editable || saving || !store.canWrite) }
+                    if task.isMoney && !task.checks.isEmpty { Button { openPayment() } label: { Label("Pagar / antecipar parcelas", systemImage: "creditcard") }.disabled(!editable || saving || !store.canWrite) }
                     NativeDateField(fields: $task.fields, key: "startAt", title: "Início")
                     Toggle("Fixar no início", isOn: flag("pinned"))
                     TextField("Etiquetas, separadas por vírgula", text: Binding(get: { task.tags.joined(separator: ", ") }, set: { task.fields["tags"] = .array($0.split(separator: ",").map { .string($0.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "#", with: "")) }) }))
@@ -224,26 +225,10 @@ struct NativeTaskEditor: View {
     }
     // Style, grouping and details come from Configurações → Layout → Tarefa aberta.
     @ViewBuilder private var checklistSection: some View {
-        let style = store.layout.taskDetailLayout
         let checks = task.checks
-        let groups = NativeTaskDetailLayout.groups(checks, grouping: store.layout.taskDetailGrouping)
-        if store.layout.taskDetailProgress && checks.count > 1 {
-            Section {
-                NativeTaskProgressHeader(done: checks.filter(\.done).count, total: checks.count, style: style, amount: task.isMoney ? (task.moneyMode == "receive" ? "A receber: " : "A pagar: ") + NativeDate.money(task.pendingAmount) : nil)
-            }.listRowSeparator(.hidden).listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 6, leading: 14, bottom: 6, trailing: 14))
-        }
-        ForEach(groups) { group in
-            Section {
-                if !collapsedGroups.contains(group.id) {
-                    ForEach(Array(group.ids.enumerated()), id: \.element) { offset, id in
-                        checkRow(id, style: style).modifier(NativeTaskDetailRowChrome(style: style, done: checks.first { $0.id == id }?.done ?? false, first: offset == 0, last: offset == group.ids.count - 1))
-                    }
-                }
-            } header: {
-                if group.title.isEmpty { HStack { Text("Subtarefas"); Spacer(); Text("\(checks.filter(\.done).count)/\(checks.count)") }.font(.system(size: 12)).textCase(nil) }
-                else { NativeTaskDetailGroupHeader(group: group, collapsed: collapsedGroups.contains(group.id)) { withAnimation(.easeInOut(duration: 0.2)) { if collapsedGroups.contains(group.id) { collapsedGroups.remove(group.id) } else { collapsedGroups.insert(group.id) } } } }
-            }
-        }
+        NativeTaskChecklist(checks: checks, money: task.isMoney, receive: task.moneyMode == "receive", pendingAmount: task.isMoney ? task.pendingAmount : nil, layout: store.layout, collapsed: collapsedGroups, toggle: { id in
+            withAnimation(.easeInOut(duration: 0.2)) { if collapsedGroups.contains(id) { collapsedGroups.remove(id) } else { collapsedGroups.insert(id) } }
+        }) { check, presentation in checkRow(check.id, presentation: presentation) }
         if editable {
             Section {
                 HStack(spacing: 10) { Image(systemName: "plus.circle.dashed").font(.system(size: 21, weight: .light)).foregroundStyle(.secondary).frame(width: 26); TextField("Adicionar subtarefa", text: $newCheck, axis: .vertical).submitLabel(.done).onSubmit { addCheck() }; if !newCheck.isEmpty { Button { addCheck() } label: { Image(systemName: "arrow.up.circle.fill").font(.title3) } } }.frame(minHeight: 44)
@@ -251,8 +236,8 @@ struct NativeTaskEditor: View {
             }
         }
     }
-    private func checkRow(_ id: String, style: String) -> some View {
-        NativeInlineCheckRow(fields: checkBinding(id), money: task.isMoney, editable: editable && !loading && !closing, saving: saving, monthly: task.fields["repeat"]?.object.text("frequency") == "monthly" && !task.id.isEmpty, canTransfer: !task.id.isEmpty, layoutStyle: style, showMetadata: store.layout.taskDetailMetadata, payment: { openPayment(id) }, values: { autosave?.cancel(); Task { if await commit(closing: false) { valuesRecord = NativeRecord(fields: ["id": .string(id)]) } } }, pause: { months, resume in pause(months: months, resume: resume, checkID: id) }, transfer: { movingCheck = id }, attach: { uploadTarget = id; showAttachments = true }, remove: { removingCheck = id })
+    private func checkRow(_ id: String, presentation: NativeCheckPresentation) -> some View {
+        NativeInlineCheckRow(fields: checkBinding(id), money: task.isMoney, editable: editable && !loading && !closing, saving: saving, monthly: task.fields["repeat"]?.object.text("frequency") == "monthly" && !task.id.isEmpty, canTransfer: !task.id.isEmpty, presentation: presentation, payment: { openPayment(id) }, values: { autosave?.cancel(); Task { if await commit(closing: false) { valuesRecord = NativeRecord(fields: ["id": .string(id)]) } } }, pause: { months, resume in pause(months: months, resume: resume, checkID: id) }, transfer: { movingCheck = id }, attach: { uploadTarget = id; showAttachments = true }, remove: { removingCheck = id })
     }
     private var reorderSheet: some View {
         NavigationStack {
@@ -317,7 +302,7 @@ struct NativeTaskEditor: View {
             baseline = receipt.canonical
             task = merge.conflicts.isEmpty ? merge.task : receipt.canonical
             serverReady = !store.offline && !store.needsSync
-            saveStatus = task == baseline ? "Salvo na sua conta" : "Alterações ainda não salvas no servidor"
+            if task == baseline { flash("Salvo na sua conta") } else { saveStatus = "Alterações ainda não salvas no servidor" }
             succeeded = true
             if shouldClose && task == baseline { saved = true; dismiss() }
             return task == baseline
@@ -346,11 +331,18 @@ struct NativeTaskEditor: View {
         guard let item = details["item"], case .object(let fields) = item else { throw NativeFailure("Resposta de tarefa incompleta.") }
         return NativeTask(fields)
     }
-    private func adoptServer(_ remote: NativeTask, status: String = "Carregado do servidor") {
+    // Loading from the server is the normal state and shows nothing; only
+    // problems stay on screen. Confirmations disappear after a moment.
+    private func adoptServer(_ remote: NativeTask, status: String = "") {
         if remote != baseline { dismissEditingSheets() }
         autosave?.cancel(); baseline = remote; task = remote; newCheck = ""
         serverReady = !store.offline && !store.needsSync && store.networkAvailable
-        saveStatus = status; syncNotice = nil
+        syncNotice = nil
+        if status.isEmpty { saveStatus = "" } else { flash(status) }
+    }
+    private func flash(_ status: String) {
+        saveStatus = status
+        Task { try? await Task.sleep(nanoseconds: 3_000_000_000); if saveStatus == status && !saving { saveStatus = "" } }
     }
     private func dismissEditingSheets() {
         installmentPayment = false; installmentGenerator = false; moneyOptions = false; remindersOptions = false; reordering = false; movingCheck = nil

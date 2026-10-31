@@ -174,7 +174,6 @@ struct NativeTransactionEditor: View {
                 Section("Lançamento") {
                     Picker("Despesa", selection: $expenseID) { ForEach(selectableExpenses.map(NativeRecord.init)) { Text($0.fields.text("name")).tag($0.id) } }
                     TextField("Descrição", text: $description).onChange(of: description) { description = String($0.prefix(150)) }
-                    if finance.parent.platform.enabled("suggestions") { Button { suggestions = true } label: { Label("Sugerir organização pelo histórico", systemImage: "sparkles") }.disabled(!finance.canWrite || description.count < 3) }
                     Picker("Tipo", selection: $type) { ForEach(["single", "fixed", "installment", "refund"], id: \.self) { Text(NativeFinanceFormat.type($0)).tag($0) } }
                     DatePicker(type == "refund" ? "Data do estorno" : "Data da compra", selection: $day, displayedComponents: .date)
                     Picker("Categoria", selection: $category) { ForEach(Array(Set(finance.snapshot.categories.map { $0.text("name") } + [category, "Outros"])).sorted(), id: \.self) { Text($0).tag($0) } }

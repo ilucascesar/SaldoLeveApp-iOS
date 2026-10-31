@@ -8,7 +8,12 @@ struct NativeNotificationSettings: View {
     @State private var status = "Verificando…"
     @State private var pending = 0
     @State private var requesting = false
+    @State private var pausedUntil = NativeAlertPause.until()
     @Environment(\.openURL) private var openURL
+    private func pause(_ until: Date) {
+        store.reminders.pause(until: until); pausedUntil = until
+        Task { try? await Task.sleep(nanoseconds: 600_000_000); await reload() }
+    }
     @Environment(\.scenePhase) private var scenePhase
     var body: some View {
         Form {
@@ -19,6 +24,16 @@ struct NativeNotificationSettings: View {
                     if let url = URL(string: UIApplication.openNotificationSettingsURLString) { openURL(url) }
                 }
             } footer: { Text("A permissão, os banners, a tela bloqueada e o modo Foco são controlados pelo iOS. O aplicativo respeita essas escolhas.") }
+            Section {
+                if let until = pausedUntil {
+                    Label("Suspensos até " + until.formatted(.dateTime.weekday(.wide).hour().minute().locale(Locale(identifier: "pt_BR"))), systemImage: "bell.slash").foregroundStyle(.orange)
+                    Button("Retomar agora") { store.reminders.pause(until: nil); pausedUntil = nil; Task { try? await Task.sleep(nanoseconds: 400_000_000); await reload() } }
+                } else {
+                    Button { pause(NativeAlertPause.forHours(2)) } label: { Label("Suspender por 2 horas", systemImage: "bell.slash") }
+                    Button { pause(NativeAlertPause.untilTomorrow(preferences)) } label: { Label("Suspender até amanhã", systemImage: "moon.zzz") }
+                }
+            } header: { Text("Suspender avisos") } footer: { Text("Também disponível segurando o ícone do SaldoLeve. Cada pendência suspensa recebe um aviso quando a pausa termina. Lembretes por local continuam ativos.") }
+            .disabled(!enabled)
             Section("Quais avisos receber") {
                 Toggle("Tarefas", isOn: $preferences.tasks)
                 Toggle("Subtarefas", isOn: $preferences.subtasks).disabled(!preferences.tasks)
@@ -72,6 +87,7 @@ struct NativeNotificationSettings: View {
         }
     }
     private func reload() async {
+        pausedUntil = NativeAlertPause.until()
         let settings = await store.reminders.permission()
         switch settings.authorizationStatus {
         case .notDetermined: status = "Ainda não solicitada"

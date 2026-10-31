@@ -7,7 +7,8 @@ var nativeBlue: Color {
 }
 
 struct NativeRootView: View {
-    @StateObject private var store = NativeStore()
+    @StateObject private var store = NativeStore.shared
+    @ObservedObject private var quickActions = NativeQuickActions.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var pendingURL: URL?
     @AppStorage("nativeAppearance") private var appearance = "system"
@@ -43,7 +44,7 @@ struct NativeRootView: View {
                 }.padding(10).background(Color.orange.opacity(0.15)).accessibilityIdentifier("server-offline-banner")
             }
         }
-        .task { if store.isPreview { store.loadPreview() } else { await store.start() } }
+        .task { if store.isPreview { store.loadPreview() } else { await store.ensureStarted() }; NativeQuickActions.refresh(); runQuickAction() }
         .task(id: active) {
             guard active, !store.isPreview else { return }
             while !Task.isCancelled {
@@ -56,10 +57,11 @@ struct NativeRootView: View {
             guard url.scheme == "saldoleve", ["focus", "tasks"].contains(url.host ?? "") else { return }
             pendingURL = url; openWidgetDestination()
         }
-        .onChange(of: store.loading) { _ in openWidgetDestination() }
+        .onChange(of: store.loading) { _ in openWidgetDestination(); runQuickAction() }
         .onChange(of: store.refreshing) { _ in openWidgetDestination() }
-        .onChange(of: store.locked) { _ in openWidgetDestination() }
+        .onChange(of: store.locked) { _ in openWidgetDestination(); runQuickAction() }
         .onChange(of: store.user?.id) { _ in openWidgetDestination() }
+        .onChange(of: quickActions.pending) { _ in runQuickAction() }
         .onChange(of: scenePhase) { phase in
             if phase != .active { store.persist() }
             if phase == .background && UserDefaults.standard.bool(forKey: "nativeBiometrics") { store.locked = store.user != nil }
@@ -72,13 +74,39 @@ struct NativeRootView: View {
             Button("OK") { store.message = nil }
         } message: { Text(store.message ?? "") }
     }
+    private func runQuickAction() {
+        guard let action = quickActions.pending, !store.loading, !store.locked else { return }
+        quickActions.pending = nil
+        let time: (Date) -> String = { $0.formatted(.dateTime.weekday(.wide).hour().minute().locale(Locale(identifier: "pt_BR"))) }
+        switch action {
+        case NativeQuickActions.pauseTwoHours, NativeQuickActions.pauseTomorrow:
+            let until = action == NativeQuickActions.pauseTwoHours ? NativeAlertPause.forHours(2) : NativeAlertPause.untilTomorrow(NativeNotificationPreferences.read())
+            store.reminders.pause(until: until)
+            store.message = "Avisos suspensos até " + time(until) + ". Lembretes por local continuam ativos. Para retomar antes, segure o ícone do SaldoLeve ou use Configurações → Notificações."
+        case NativeQuickActions.resume:
+            store.reminders.pause(until: nil)
+            store.message = "Avisos retomados."
+        case NativeQuickActions.newTask:
+            pendingURL = URL(string: "saldoleve://tasks?new=1"); openWidgetDestination()
+        default: break
+        }
+    }
     private func openWidgetDestination() {
         guard let url = pendingURL, active, !store.loading, !store.locked, store.user != nil else { return }
         store.section = .tasks
         store.openedFinance = nil; store.menuOpen = false
         // Legacy widgets also enter the task list, never the old focus modal.
         store.taskScopeRequest = "all"
-        let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "id" }?.value
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        if items.contains(where: { $0.name == "new" }) {
+            // Quick action "Nova tarefa": waits for the server before opening.
+            guard !store.refreshing else { return }
+            pendingURL = nil
+            if store.canWrite, let category = store.editableCategories.first?.id { store.openedTask = NativeTask.draft(categoryID: category) }
+            else { store.message = "Sem conexão com o servidor. Atualize antes de criar uma tarefa." }
+            return
+        }
+        let id = items.first { $0.name == "id" }?.value
         guard let id else { pendingURL = nil; return }
         if let task = store.snapshot.items.first(where: { $0.id == id }) {
             pendingURL = nil; store.openedTask = task

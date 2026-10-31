@@ -216,8 +216,7 @@ struct NativeInlineCheckRow: View {
     var saving = false
     var monthly = false
     var canTransfer = false
-    var layoutStyle = "elegant"
-    var showMetadata = true
+    var presentation = NativeCheckPresentation()
     var payment: () -> Void = {}
     var values: () -> Void = {}
     var pause: (Int, Bool) -> Void = { _, _ in }
@@ -225,37 +224,172 @@ struct NativeInlineCheckRow: View {
     var attach: () -> Void
     var remove: () -> Void
     @State private var amount = false
-    var body: some View {
-        HStack(alignment: .top, spacing: 9) {
-            Button {
-                if money && !fields.flag("done") { payment() }
-                else { fields["done"] = .bool(!fields.flag("done")) }
-            } label: { Image(systemName: fields.flag("done") ? "checkmark.circle.fill" : "circle").font(.system(size: layoutStyle == "minimal" ? 19 : 21, weight: .light)).foregroundStyle(fields.flag("done") ? Color.secondary.opacity(0.6) : nativeBlue).background(Circle().fill(layoutStyle == "timeline" ? nativePaper : Color.clear).frame(width: 22, height: 22)).frame(width: 26, height: layoutStyle == "minimal" ? 36 : 44) }.disabled(!editable || saving).accessibilityLabel(fields.flag("done") ? "Reabrir subtarefa" : money ? "Registrar pagamento" : "Concluir subtarefa")
-            VStack(alignment: .leading, spacing: layoutStyle == "minimal" ? 0 : 5) {
-                TextField("Nome da subtarefa", text: Binding(get: { fields.text("text") }, set: { fields["text"] = .string($0) }), axis: .vertical).font(.system(size: layoutStyle == "minimal" ? 14 : 16, weight: layoutStyle == "cards" ? .medium : .regular)).strikethrough(fields.flag("done")).foregroundStyle(fields.flag("done") ? Color.secondary : Color.primary).lineLimit(1...8).frame(minHeight: layoutStyle == "minimal" ? 36 : 44).disabled(!editable)
-                if showMetadata {
-                    HStack(spacing: 8) {
-                        NativeDateChip(fields: $fields, key: "remindAt", compact: true, enabled: editable && !saving)
-                        if money { Button { if fields.flag("done") { values() } else { payment() } } label: { Text("Original: " + NativeDate.money(fields["amountCents"]?.number)).font(.system(size: 12, weight: .medium)).foregroundStyle(nativeBlue).lineLimit(1).minimumScaleFactor(0.8) }.disabled(!editable) }
-                    }.padding(.bottom, 5)
-                }
-                if let until = NativeDate.parse(fields.text("pausedUntil")), until > Date() { Text("Pausada até " + until.formatted(.dateTime.day().month(.abbreviated).locale(Locale(identifier: "pt_BR")))).font(.system(size: 11)).foregroundStyle(.orange) }
-            }.frame(maxWidth: .infinity, alignment: .leading)
-            Menu {
-                if !showMetadata { Button("Data e horário") { date = true } }
-                Button { attach() } label: { Label("Anexos e comprovantes", systemImage: "paperclip") }
-                if money { if !fields.flag("done") { Button("Pagar / antecipar") { payment() } }; Button(fields.flag("done") ? "Valores original e pago" : "Alterar valor original") { if fields.flag("done") { values() } else { amount = true } } }
-                Toggle("Repetir no próximo ciclo mensal", isOn: Binding(get: { fields["repeatMonthly"]?.bool ?? true }, set: { fields["repeatMonthly"] = .bool($0) }))
-                if monthly && !fields.flag("done") {
-                    if NativeDate.parse(fields.text("pausedUntil")).map({ $0 > Date() }) == true { Button("Retomar cobrança") { pause(0, true) } }
-                    else { Menu("Pausar cobrança") { ForEach([1, 2, 3, 6, 12], id: \.self) { months in Button("\(months) mês(es)") { pause(months, false) } } } }
-                }
-                if canTransfer { Button("Transferir para outra tarefa") { transfer() } }
-                Button("Remover subtarefa", role: .destructive) { remove() }
-            } label: { Image(systemName: "ellipsis").foregroundStyle(.secondary).frame(width: 28, height: 44) }.disabled(!editable || saving).accessibilityLabel("Mais opções da subtarefa")
-        }.buttonStyle(.borderless).padding(.vertical, layoutStyle == "minimal" ? 0 : 6)
-            .sheet(isPresented: $amount) { NativeMoneyOptions(fields: $fields, isCheck: true) }
-            .sheet(isPresented: $date) { NavigationStack { Form { NativeDateField(fields: $fields, key: "remindAt", title: "Data e horário") }.navigationTitle("Subtarefa").toolbar { Button("Pronto") { date = false } } } }
-    }
     @State private var date = false
+    private var p: NativeCheckPresentation { presentation }
+    private var done: Bool { fields.flag("done") }
+    private var dueDate: Date? { NativeDate.parse(fields.text("remindAt")) }
+    var body: some View {
+        Group {
+            switch p.style {
+            case "cards": cardRow
+            case "timeline": timelineRow
+            case "ledger": ledgerRow
+            case "minimal": minimalRow
+            default: elegantRow
+            }
+        }.buttonStyle(.borderless)
+            .sheet(isPresented: $amount) { NativeMoneyOptions(fields: $fields, isCheck: true) }
+            .sheet(isPresented: $date) { NativeDateSheet(fields: $fields, key: "remindAt") }
+    }
+
+    // MARK: Styles
+    private var elegantRow: some View {
+        HStack(alignment: .top, spacing: 10) {
+            check(size: p.compact ? 19 : 22, height: p.compact ? 34 : 40)
+            VStack(alignment: .leading, spacing: p.compact ? 2 : 5) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    numberLabel
+                    title(size: p.compact ? 15 : 16, weight: p.highlight ? .semibold : .regular, minHeight: p.compact ? 34 : 40)
+                    if money && p.amounts { amountButton(size: 14, weight: .semibold) }
+                }
+                if (p.highlight && !done) || p.pills || p.metadata {
+                    HStack(spacing: 6) {
+                        if p.highlight && !done { badge("Próxima", color: nativeBlue, filled: true) }
+                        if p.pills { badge(p.label(money: money), color: p.tint) }
+                        if p.metadata { dateChip }
+                    }.padding(.bottom, p.compact ? 2 : 4)
+                }
+                pausedNote
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            menu
+        }.padding(.vertical, p.compact ? 1 : 5).padding(.horizontal, p.highlight && !done ? 8 : 0)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(p.highlight && !done ? nativeBlue.opacity(0.07) : Color.clear))
+    }
+    private var cardRow: some View {
+        VStack(alignment: .leading, spacing: p.compact ? 6 : 10) {
+            HStack(alignment: .top, spacing: 10) {
+                check(size: 22, height: 36)
+                VStack(alignment: .leading, spacing: 2) {
+                    if let number = p.number { Text("Nº \(number)").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary) }
+                    title(size: 16, weight: .semibold, minHeight: 36)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                if p.highlight && !done { badge("Próxima", color: nativeBlue, filled: true).padding(.top, 8) }
+                else if p.pills { badge(p.label(money: money), color: p.tint).padding(.top, 8) }
+                menu
+            }
+            if p.metadata || (money && p.amounts) {
+                HStack(alignment: .bottom, spacing: 0) {
+                    if p.metadata {
+                        VStack(alignment: .leading, spacing: 1) { caption("Vencimento"); dateChip }.frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    if money && p.amounts {
+                        VStack(alignment: .trailing, spacing: 3) { caption(done ? (p.receive ? "Recebido" : "Pago") : "Valor"); amountButton(size: 17, weight: .bold) }.frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                }.padding(.leading, 34).padding(.trailing, 6)
+            }
+            pausedNote.padding(.leading, 34)
+        }.padding(.vertical, p.compact ? 6 : 10).padding(.horizontal, 6)
+    }
+    private var timelineRow: some View {
+        HStack(alignment: .top, spacing: 8) {
+            VStack(spacing: 0) {
+                Text(dueDate.map { String(Calendar.current.component(.day, from: $0)) } ?? "–").font(.system(size: 18, weight: .bold, design: .rounded)).foregroundStyle(done ? Color.secondary : p.tint == .secondary ? Color.primary : p.tint)
+                Text(dueDate.map { $0.formatted(.dateTime.month(.abbreviated).locale(Locale(identifier: "pt_BR"))).replacingOccurrences(of: ".", with: "").uppercased() } ?? "SEM").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+            }.frame(width: 40).padding(.top, 9)
+            check(size: 20, height: 46, node: true)
+            VStack(alignment: .leading, spacing: 3) {
+                title(size: 15, weight: p.highlight ? .semibold : .medium, minHeight: 30)
+                HStack(spacing: 6) {
+                    if p.highlight && !done { badge("Próxima", color: nativeBlue, filled: true) }
+                    if p.pills { badge(p.label(money: money), color: p.tint) }
+                    if p.metadata, let dueDate, Calendar.current.component(.hour, from: dueDate) + Calendar.current.component(.minute, from: dueDate) > 0 {
+                        Text(dueDate.formatted(.dateTime.hour().minute().locale(Locale(identifier: "pt_BR")))).font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                    if money && p.amounts { amountButton(size: 13, weight: .semibold) }
+                }
+                pausedNote
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
+            menu
+        }
+    }
+    private var ledgerRow: some View {
+        HStack(spacing: 8) {
+            Text(p.number.map { String(format: "%02d", $0) } ?? "").font(.system(size: 11, weight: .semibold, design: .monospaced)).foregroundStyle(.secondary).frame(width: 24, alignment: .leading)
+            check(size: 17, height: 38)
+            title(size: 14, weight: p.highlight ? .semibold : .regular, minHeight: 38).lineLimit(1...3)
+            Button { date = true } label: {
+                Text(dueDate.map { $0.formatted(.dateTime.day(.twoDigits).month(.twoDigits).year(.twoDigits).locale(Locale(identifier: "pt_BR"))) } ?? "—").font(.system(size: 12, design: .monospaced)).foregroundStyle(done ? Color.secondary : p.tint == .secondary ? Color.secondary : p.tint).lineLimit(1)
+            }.frame(width: 66, alignment: .trailing).disabled(!editable || saving)
+            if money { amountButton(size: 12, weight: .semibold, monospaced: true).frame(width: 84, alignment: .trailing) }
+            menu
+        }
+    }
+    private var minimalRow: some View {
+        HStack(spacing: 8) {
+            check(size: 18, height: 36)
+            numberLabel
+            title(size: 14, weight: .regular, minHeight: 36).lineLimit(1...3)
+            if p.metadata, let dueDate { Text(dueDate.formatted(.dateTime.day().month(.twoDigits).locale(Locale(identifier: "pt_BR")))).font(.system(size: 11)).foregroundStyle(done ? Color.secondary : p.tint) }
+            if money && p.amounts { amountButton(size: 12, weight: .medium) }
+            menu
+        }
+    }
+
+    // MARK: Parts
+    private func check(size: CGFloat, height: CGFloat, node: Bool = false) -> some View {
+        Button {
+            if money && !done { payment() }
+            else { fields["done"] = .bool(!done) }
+        } label: {
+            Image(systemName: done ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: size, weight: done ? .regular : .light))
+                .foregroundStyle(done ? Color.green.opacity(0.75) : (p.state == "overdue" ? Color.red : nativeBlue))
+                .background(Circle().fill(node ? nativePaper : Color.clear).frame(width: size + 2, height: size + 2))
+                .frame(width: 26, height: height)
+        }.disabled(!editable || saving).accessibilityLabel(done ? "Reabrir subtarefa" : money ? "Registrar pagamento" : "Concluir subtarefa")
+    }
+    private func title(size: CGFloat, weight: Font.Weight, minHeight: CGFloat) -> some View {
+        TextField("Nome da subtarefa", text: Binding(get: { fields.text("text") }, set: { fields["text"] = .string($0) }), axis: .vertical)
+            .font(.system(size: size, weight: weight)).strikethrough(done, color: .secondary)
+            .foregroundStyle(done ? Color.secondary : Color.primary).lineLimit(1...8)
+            .frame(minHeight: minHeight).disabled(!editable)
+    }
+    @ViewBuilder private var numberLabel: some View {
+        if let number = p.number { Text(String(format: "%02d", number)).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundStyle(.secondary) }
+    }
+    private var amountText: String {
+        if done, let paid = fields["paidAmountCents"]?.number { return NativeDate.money(paid) }
+        return fields["amountCents"]?.number.map { NativeDate.money($0) } ?? "Definir valor"
+    }
+    private func amountButton(size: CGFloat, weight: Font.Weight, monospaced: Bool = false) -> some View {
+        Button { if done { values() } else { payment() } } label: {
+            Text(amountText).font(.system(size: size, weight: weight, design: monospaced ? .monospaced : .rounded))
+                .foregroundStyle(done ? Color.secondary : Color.primary).lineLimit(1).minimumScaleFactor(0.7).fixedSize(horizontal: !monospaced, vertical: false)
+        }.disabled(!editable).accessibilityLabel((done ? "Valor pago " : "Valor ") + amountText)
+    }
+    private var dateChip: some View { NativeDateChip(fields: $fields, key: "remindAt", compact: true, enabled: editable && !saving).frame(height: 24) }
+    private func badge(_ text: String, color: Color, filled: Bool = false) -> some View {
+        Text(text).font(.system(size: 10, weight: .bold)).lineLimit(1)
+            .foregroundStyle(filled ? Color.white : color)
+            .padding(.horizontal, 7).padding(.vertical, 3)
+            .background(filled ? color : color.opacity(0.12), in: Capsule())
+    }
+    private func caption(_ text: String) -> some View { Text(text).font(.system(size: 9, weight: .bold)).textCase(.uppercase).foregroundStyle(.secondary) }
+    @ViewBuilder private var pausedNote: some View {
+        if let until = NativeDate.parse(fields.text("pausedUntil")), until > Date() { Text("Pausada até " + until.formatted(.dateTime.day().month(.abbreviated).locale(Locale(identifier: "pt_BR")))).font(.system(size: 11)).foregroundStyle(.orange) }
+    }
+    private var menu: some View {
+        Menu {
+            Button { date = true } label: { Label("Data e horário", systemImage: "calendar") }
+            Button { attach() } label: { Label("Anexos e comprovantes", systemImage: "paperclip") }
+            if money { if !done { Button("Pagar / antecipar") { payment() } }; Button(done ? "Valores original e pago" : "Alterar valor original") { if done { values() } else { amount = true } } }
+            Toggle("Repetir no próximo ciclo mensal", isOn: Binding(get: { fields["repeatMonthly"]?.bool ?? true }, set: { fields["repeatMonthly"] = .bool($0) }))
+            if monthly && !done {
+                if NativeDate.parse(fields.text("pausedUntil")).map({ $0 > Date() }) == true { Button("Retomar cobrança") { pause(0, true) } }
+                else { Menu("Pausar cobrança") { ForEach([1, 2, 3, 6, 12], id: \.self) { months in Button("\(months) mês(es)") { pause(months, false) } } } }
+            }
+            if canTransfer { Button("Transferir para outra tarefa") { transfer() } }
+            Button("Remover subtarefa", role: .destructive) { remove() }
+        } label: { Image(systemName: "ellipsis").foregroundStyle(.secondary).frame(width: 22, height: p.compact || p.style == "ledger" ? 36 : 40) }.disabled(!editable || saving).accessibilityLabel("Mais opções da subtarefa")
+    }
 }

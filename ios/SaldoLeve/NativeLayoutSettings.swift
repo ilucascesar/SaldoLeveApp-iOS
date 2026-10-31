@@ -158,10 +158,17 @@ struct NativeLayoutDetail: View {
             } header: { Text("Estilo") } footer: { Text("Escolher um estilo aplica as opções recomendadas. Depois, personalize cada detalhe abaixo.") }
             Section {
                 Picker("Agrupar subtarefas", selection: $layout.taskDetailGrouping) { ForEach(NativeLayoutPreferences.taskDetailGroupings, id: \.self) { Text(NativeTaskDetailLayout.groupingNames[$0] ?? $0).tag($0) } }
-                Toggle("Resumo de progresso no topo", isOn: $layout.taskDetailProgress)
-                Toggle("Data e valor em cada subtarefa", isOn: $layout.taskDetailMetadata)
+                Picker("Densidade", selection: $layout.taskDetailDensity) { Text("Normal").tag("regular"); Text("Compacta").tag("compact") }
                 Toggle("Mostrar concluídas abertas", isOn: $layout.taskDetailExpandDone)
-            } header: { Text("Personalizar") } footer: { Text("Sem data e valor na linha, use o menu ⋯ da subtarefa para alterar a data. Grupos podem ser recolhidos tocando no título.") }
+            } header: { Text("Organização") } footer: { Text("Grupos podem ser recolhidos tocando no título.") }
+            Section {
+                Toggle("Destacar a próxima pendência", isOn: $layout.taskDetailHighlightNext)
+                Toggle("Situação colorida (Atrasada, Hoje, Em 3 dias)", isOn: $layout.taskDetailPills)
+                Toggle("Data em cada subtarefa", isOn: $layout.taskDetailMetadata)
+                Toggle("Valor em cada subtarefa", isOn: $layout.taskDetailAmounts)
+                Toggle("Numerar subtarefas", isOn: $layout.taskDetailNumbers)
+                Toggle("Progresso no título do grupo", isOn: $layout.taskDetailProgress)
+            } header: { Text("Detalhes de cada linha") } footer: { Text("O progresso aparece discreto ao lado do título, sem empurrar as subtarefas para baixo. Sem a data na linha, use o menu ⋯ para alterá-la.") }
         }
     }
     private var appearanceSettings: some View {

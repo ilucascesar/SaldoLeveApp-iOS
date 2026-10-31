@@ -26,6 +26,12 @@
   <key>NSContactsUsageDescription</key><string>Ler nomes e aniversários dos contatos que você escolher importar, após sua conferência, para sua conta SaldoLeve. Telefones e e-mails não são importados.</string>
   <key>NSCameraUsageDescription</key><string>Fotografar comprovantes que você escolher anexar no SaldoLeve.</string>
   <key>NSPhotoLibraryUsageDescription</key><string>Selecionar imagens que você escolher anexar no SaldoLeve.</string>
+  <key>NSLocationWhenInUseUsageDescription</key><string>Avisar sobre tarefas ao chegar ou sair dos locais que você salvar, como o mercado ou sua casa. Sua posição não é enviada ao servidor; somente os locais que você salvar.</string>
+  <key>UIApplicationShortcutItems</key><array>
+    <dict><key>UIApplicationShortcutItemType</key><string>br.com.ilucascesar.saldoleve.new-task</string><key>UIApplicationShortcutItemTitle</key><string>Nova tarefa</string><key>UIApplicationShortcutItemIconSymbolName</key><string>plus.circle</string></dict>
+    <dict><key>UIApplicationShortcutItemType</key><string>br.com.ilucascesar.saldoleve.pause-2h</string><key>UIApplicationShortcutItemTitle</key><string>Suspender avisos por 2 horas</string><key>UIApplicationShortcutItemIconSymbolName</key><string>bell.slash</string></dict>
+    <dict><key>UIApplicationShortcutItemType</key><string>br.com.ilucascesar.saldoleve.pause-tomorrow</string><key>UIApplicationShortcutItemTitle</key><string>Suspender avisos até amanhã</string><key>UIApplicationShortcutItemIconSymbolName</key><string>moon.zzz</string></dict>
+  </array>
   <key>NSFaceIDUsageDescription</key><string>Desbloquear suas tarefas e comprovantes com Face ID quando você ativar a proteção do aplicativo.</string>
   <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><false/></dict>
 </dict></plist>

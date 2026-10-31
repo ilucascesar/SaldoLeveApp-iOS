@@ -98,6 +98,14 @@ final class NativeStore: ObservableObject {
             if let task = snapshot.items.first(where: { $0.id == id }) { openedTask = task }
         }
     }
+    // One store for the app and for Siri, so both share the session and the
+    // data confirmed by the server.
+    static let shared = NativeStore()
+    private var startTask: Task<Void, Never>?
+    func ensureStarted() async {
+        if startTask == nil { startTask = Task { await start() } }
+        await startTask?.value
+    }
     var canWrite: Bool { user != nil && networkAvailable && !offline && !needsSync && !working }
     var editableCategories: [NativeCategory] { snapshot.lists.filter(\.canEdit) }
     func canEdit(_ task: NativeTask) -> Bool { canWrite && taskIndex.categories[task.categoryID]?.canEdit == true }

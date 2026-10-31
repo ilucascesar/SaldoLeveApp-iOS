@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum NativeSettingsPage: String, CaseIterable, Identifiable, Hashable {
-    case appearance, layout, notifications, birthdays, widgets, menus, features, account, about
+    case appearance, layout, notifications, birthdays, places, widgets, menus, features, account, about
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -9,6 +9,7 @@ enum NativeSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .layout: return "Layout e organização"
         case .notifications: return "Notificações, silêncio e contador"
         case .birthdays: return "Padrões de aniversariantes"
+        case .places: return "Locais"
         case .widgets: return "Widgets"
         case .menus: return "Menus e textos"
         case .features: return "Recursos e sugestões"
@@ -22,6 +23,7 @@ enum NativeSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .layout: return "slider.horizontal.3"
         case .notifications: return "bell.badge"
         case .birthdays: return "gift"
+        case .places: return "mappin.and.ellipse"
         case .widgets: return "square.grid.2x2"
         case .menus: return "sidebar.left"
         case .features: return "sparkles"
@@ -33,8 +35,9 @@ enum NativeSettingsPage: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .appearance: return "tema claro escuro modo cor"
         case .layout: return "cards colunas despesas visão geral tarefas fonte texto tamanho abas filtros"
-        case .notifications: return "avisos lembretes som horário badge ícone vencimentos"
-        case .birthdays: return "aniversário antecipação dias horário grupo contatos"
+        case .notifications: return "avisos lembretes som horário badge ícone vencimentos suspender pausar"
+        case .birthdays: return "aniversário antecipação dias horário grupo contatos persistentes sincronizar"
+        case .places: return "local localização mercado casa chegar sair geofence lembrete por local"
         case .widgets: return "tamanhos vertical maior lista conteúdo conexão código"
         case .menus: return "ordem títulos navegação personalizar"
         case .features: return "busca erros valores organização recursos"
@@ -55,7 +58,7 @@ struct NativeSettingsView: View {
     }
     private let groups: [(String, [NativeSettingsPage])] = [
         ("Personalização", [.appearance, .layout]),
-        ("Avisos e widgets", [.notifications, .birthdays, .widgets]),
+        ("Avisos e widgets", [.notifications, .birthdays, .places, .widgets]),
         ("Preferências do sistema", [.menus, .features]),
         ("Sua conta", [.account, .about])
     ]
@@ -65,9 +68,6 @@ struct NativeSettingsView: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                if search.isEmpty {
-                    Section { Label("Todas as preferências do SaldoLeve em um só lugar.", systemImage: "gearshape").foregroundStyle(.secondary).font(.subheadline) }
-                }
                 ForEach(groups.indices, id: \.self) { index in
                     let pages = groups[index].1.filter(matches)
                     if !pages.isEmpty {
@@ -90,6 +90,7 @@ struct NativeSettingsView: View {
                     case .layout: NativeLayoutSettings(store: store, embedded: true)
                     case .notifications: NativeNotificationSettings(store: store)
                     case .birthdays: NativeRemoteSettings(platform: store.platform, page: .birthdays, embedded: true)
+                    case .places: NativePlacesSettings(store: store)
                     case .widgets: NativeWidgetSettings(store: store)
                     case .menus: NativeRemoteSettings(platform: store.platform, page: .menus, embedded: true)
                     case .features: NativeRemoteSettings(platform: store.platform, page: .features, embedded: true)

@@ -9,7 +9,16 @@ struct NativeContactBirthdays {
 }
 
 enum NativeBirthdayContacts {
-    static func load() async throws -> NativeContactBirthdays {
+    // Automatic sync never asks for permission; it only runs after the user
+    // allowed Contacts (fully or for selected contacts).
+    static var authorized: Bool {
+        let status = CNContactStore.authorizationStatus(for: .contacts)
+        if status == .authorized { return true }
+        if #available(iOS 18.0, *) { return status == .limited }
+        return false
+    }
+    static func load(prompt: Bool = true) async throws -> NativeContactBirthdays {
+        if !prompt && !authorized { throw NativeFailure("Contatos sem permissão.") }
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--preview-contacts") {
             let item = NativeBirthday(["sourceKey": .string("fixture-contact"), "name": .string("Contato de teste"), "month": .number(2), "day": .number(29), "year": .null, "group": .string("Amigos"), "daysBefore": .array([.number(0)]), "time": .string("09:00"), "enabled": .bool(true), "timezone": .string("America/Sao_Paulo"), "leapPolicy": .string("feb28")])

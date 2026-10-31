@@ -37,6 +37,73 @@ struct NativeBirthday: Codable, Identifiable, Equatable {
     }
     func age(at date: Date) -> Int? { year.map { max(0, calendar.component(.year, from: date) - $0) } }
     var dateLabel: String { String(format: "%02d/%02d", day, month) + (year.map { "/\($0)" } ?? "") }
+
+    // Like a task, each yearly occurrence can be marked as done (for example,
+    // after sending a message). The person stays in the same place in the list.
+    static let lateDays = 2
+    var completedYears: [Int] { fields["completedYears"]?.array.compactMap { $0.number.map(Int.init) } ?? [] }
+    var persistent: Bool { fields["persistent"] != .bool(false) }
+    var repeatMinutes: Int { [60, 120, 240, 360, 480].contains(fields.integer("overdueMinutes")) ? fields.integer("overdueMinutes") : 60 }
+    // The occurrence the checkbox refers to: a birthday from the last two
+    // days (done or not, so the person stays in place), otherwise the next one.
+    func currentOccurrence(now: Date = Date()) -> Date? {
+        let c = calendar, today = c.startOfDay(for: now), y = c.component(.year, from: now)
+        let recent = ((y - 1)...y).compactMap { occurrence(year: $0) }.filter { c.startOfDay(for: $0) < today }.max()
+        if let recent, let limit = c.date(byAdding: .day, value: Self.lateDays + 1, to: c.startOfDay(for: recent)), today < limit { return recent }
+        return nextDate(now: now)
+    }
+    func isCompleted(now: Date = Date()) -> Bool {
+        guard let date = currentOccurrence(now: now) else { return false }
+        return completedYears.contains(calendar.component(.year, from: date))
+    }
+    func isLate(now: Date = Date()) -> Bool {
+        guard let date = currentOccurrence(now: now) else { return false }
+        return !isCompleted(now: now) && calendar.startOfDay(for: date) < calendar.startOfDay(for: now)
+    }
+    func settingCompleted(_ done: Bool, now: Date = Date()) -> NativeBirthday {
+        guard let date = currentOccurrence(now: now) else { return self }
+        let target = calendar.component(.year, from: date)
+        var years = Set(completedYears.filter { $0 >= target - 5 })
+        if done { years.insert(target) } else { years.remove(target) }
+        var copy = self; copy.fields["completedYears"] = .array(years.sorted().map { .number(Double($0)) })
+        return copy
+    }
+}
+
+// A saved place (Configurações → Locais) used by location reminders.
+struct NativePlace: Identifiable, Equatable {
+    var fields: JSONObject
+    init(_ fields: JSONObject) { self.fields = fields }
+    var id: String { fields.text("id") }
+    var name: String { fields.text("name") }
+    var latitude: Double { fields["latitude"]?.number ?? 0 }
+    var longitude: Double { fields["longitude"]?.number ?? 0 }
+    var radius: Double { min(1000, max(100, fields["radius"]?.number ?? 150)) }
+    var valid: Bool { !name.isEmpty && (-90...90).contains(latitude) && (-180...180).contains(longitude) && !(latitude == 0 && longitude == 0) }
+    static let radii: [Double] = [100, 150, 200, 300, 500, 1000]
+    static func list(_ config: JSONObject) -> [NativePlace] { (config["places"]?.array ?? []).compactMap { $0.object.isEmpty ? nil : NativePlace($0.object) }.filter(\.valid) }
+}
+
+// A task's location reminder: the place and whether to warn on arriving or leaving.
+struct NativeLocationReminder: Equatable {
+    var placeID: String
+    var trigger: String
+    init?(_ fields: JSONObject) {
+        guard let value = fields["locationReminder"]?.object, !value.text("placeId").isEmpty else { return nil }
+        placeID = value.text("placeId"); trigger = value.text("trigger") == "leave" ? "leave" : "arrive"
+    }
+    // Tasks for the same place and direction share one grouped notification.
+    struct Group: Equatable { var place: NativePlace; var trigger: String; var titles: [String]; var taskIDs: [String] }
+    static func groups(_ snapshot: NativeSnapshot, places: [NativePlace], limit: Int = 12) -> [Group] {
+        var result: [Group] = []
+        for task in snapshot.items where task.isActive && !task.paused {
+            guard let reminder = NativeLocationReminder(task.fields), let place = places.first(where: { $0.id == reminder.placeID }) else { continue }
+            if let index = result.firstIndex(where: { $0.place.id == place.id && $0.trigger == reminder.trigger }) {
+                result[index].titles.append(task.title); result[index].taskIDs.append(task.id)
+            } else { result.append(Group(place: place, trigger: reminder.trigger, titles: [task.title], taskIDs: [task.id])) }
+        }
+        return Array(result.sorted { $0.titles.count > $1.titles.count }.prefix(limit))
+    }
 }
 
 struct NativePlatformSnapshot: Codable {
@@ -71,7 +138,7 @@ enum NativeBirthdayPlan {
             let c = birthday.calendar, y = c.component(.year, from: now)
             let offsets = birthday.fields["daysBefore"]?.array.compactMap { $0.number.map(Int.init) } ?? [0]
             for offset in Set(offsets).filter({ (0...90).contains($0) }) {
-                for year in y...(y + 8) {
+                for year in y...(y + 8) where !birthday.completedYears.contains(year) {
                     guard let occasion = birthday.occurrence(year: year), let candidate = c.date(byAdding: .day, value: -offset, to: occasion) else { continue }
                     let delivery = preferences.deliveryDate(candidate)
                     guard delivery > now else { continue }
@@ -79,6 +146,18 @@ enum NativeBirthdayPlan {
                     result.append(PlannedReminder(id: "sl-task-birthday-\(birthday.id)-\(offset)", taskID: "birthday:" + birthday.id, title: "Aniversário · " + birthday.name, body: body, date: delivery))
                     break
                 }
+            }
+            // Persistent alerts, like overdue tasks: after the birthday time,
+            // repeat until it is marked as done (at most two days later).
+            guard preferences.repeatOverdue, birthday.persistent, !birthday.isCompleted(now: now), let occasion = birthday.currentOccurrence(now: now),
+                  occasion.timeIntervalSince(now) < 7 * 86400, let limit = c.date(byAdding: .day, value: NativeBirthday.lateDays + 1, to: c.startOfDay(for: occasion)) else { continue }
+            let interval = Double(birthday.repeatMinutes) * 60
+            let first = occasion.addingTimeInterval(max(1, floor(now.timeIntervalSince(occasion) / interval) + 1) * interval)
+            var seen = Set<Date>()
+            for index in 0..<8 {
+                let delivery = preferences.deliveryDate(first.addingTimeInterval(Double(index) * interval))
+                guard delivery > now, delivery < limit, seen.insert(delivery).inserted else { continue }
+                result.append(PlannedReminder(id: "sl-task-birthday-\(birthday.id)-repeat-\(index)", taskID: "birthday:" + birthday.id, title: "Aniversário · " + birthday.name, body: "Ainda falta dar os parabéns para \(birthday.name). Marque como concluído no SaldoLeve.", date: delivery))
             }
         }
         return result.sorted { $0.date == $1.date ? $0.id < $1.id : $0.date < $1.date }

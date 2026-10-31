@@ -1,4 +1,5 @@
 import SwiftUI
+import CryptoKit
 
 @MainActor final class NativePlatformStore: ObservableObject {
     unowned let parent: NativeStore
@@ -39,8 +40,9 @@ import SwiftUI
             let next = try await parent.api.get(NativePlatformSnapshot.self, action: "platform_bootstrap")
             guard parent.user?.id == userID else { return }
             snapshot = next; loaded = true; issue = nil; applyRemoteLayout()
-            parent.reminders.update(parent.snapshot, birthdays: enabled("birthdays") ? next.birthdays : [])
+            parent.reminders.update(parent.snapshot, birthdays: enabled("birthdays") ? next.birthdays : [], places: NativePlace.list(next.config))
             parent.objectWillChange.send()
+            if !contactsSyncing { Task { await syncContactsIfNeeded() } }
         } catch { guard !NativeRequestError.isCancellation(error) else { return }; parent.noteConnectionFailure(error); issue = "Não foi possível atualizar os novos recursos. Confira a atualização da HostGator. " + error.localizedDescription }
     }
     private func applyRemoteLayout() {
@@ -72,7 +74,7 @@ import SwiftUI
         } catch { parent.noteConnectionFailure(error); if (error as? NativeFailure)?.status != 499 { await refresh() }; throw error }
     }
     func saveLayout(_ layout: NativeLayoutPreferences, revision: Int) async throws {
-        guard snapshot.apiVersion >= 6 else { throw NativeFailure("Envie primeiro o pacote HostGator 2.6.0 para salvar os novos layouts.", status: 422) }
+        guard snapshot.apiVersion >= 7 else { throw NativeFailure("Envie primeiro o pacote HostGator 2.7.0 para salvar os novos layouts.", status: 422) }
         var config = snapshot.config
         let bytes = try JSONEncoder().encode(layout)
         config["layout"] = .object(try JSONDecoder().decode(JSONObject.self, from: bytes))
@@ -104,9 +106,55 @@ import SwiftUI
         }
         await refresh(); return (imported, skipped)
     }
+    // Marks this year's birthday as done (message sent). The person keeps its
+    // place in the list; the server confirms before the checkbox changes.
+    func setCompleted(_ value: NativeBirthday, _ done: Bool) async throws {
+        guard snapshot.apiVersion >= 7 else { throw NativeFailure("Envie primeiro o pacote HostGator 2.7.0 para concluir aniversários.", status: 422) }
+        #if DEBUG
+        if parent.isPreview {
+            var next = value.settingCompleted(done); next.fields["revision"] = .number(Double(value.fields.integer("revision") + 1))
+            snapshot.birthdays = snapshot.birthdays.map { $0.id == value.id ? next : $0 }; return
+        }
+        #endif
+        try await saveBirthday(value.settingCompleted(done))
+    }
+    func savePlaces(_ places: [JSONValue]) async throws {
+        guard snapshot.apiVersion >= 7 else { throw NativeFailure("Envie primeiro o pacote HostGator 2.7.0 para salvar locais.", status: 422) }
+        var config = snapshot.config; config["places"] = .array(places)
+        try await saveConfig(config, revision: snapshot.revision)
+    }
+    // Automatic contacts sync: reads the iPhone contacts at most every 15
+    // minutes and sends them when something changed (or once a day). Only
+    // name and date are sent; the server keeps everything else.
+    private var contactsSyncing = false
+    func syncContactsIfNeeded(force: Bool = false) async {
+        guard !contactsSyncing, loaded, snapshot.apiVersion >= 7, enabled("birthdays"), enabled("contactsSync"), canWrite, !parent.isPreview, NativeBirthdayContacts.authorized, let user = parent.user else { return }
+        contactsSyncing = true; defer { contactsSyncing = false }
+        let key = "nativeContactsSync." + user.id, now = Date().timeIntervalSince1970
+        var state = UserDefaults.standard.dictionary(forKey: key) ?? [:]
+        guard force || now - (state["checked"] as? Double ?? 0) > 900 else { return }
+        state["checked"] = now; UserDefaults.standard.set(state, forKey: key)
+        guard let contacts = try? await NativeBirthdayContacts.load(prompt: false) else { return }
+        var items: [JSONValue] = [], lines: [String] = []
+        for item in contacts.items {
+            let year: String = item.year.map(String.init) ?? ""
+            items.append(.object(["sourceKey": .string(item.fields.text("sourceKey")), "name": .string(item.name), "month": .number(Double(item.month)), "day": .number(Double(item.day)), "year": item.fields["year"] ?? .null]))
+            lines.append(item.fields.text("sourceKey") + "|" + item.name + "|" + String(item.month) + "|" + String(item.day) + "|" + year)
+        }
+        let digest = SHA256.hash(data: Data(lines.sorted().joined(separator: "\n").utf8)).map { String(format: "%02x", $0) }.joined()
+        guard force || digest != state["hash"] as? String || now - (state["sent"] as? Double ?? 0) > 86400 else { return }
+        do {
+            for offset in stride(from: 0, to: items.count, by: 200) {
+                guard parent.user?.id == user.id, parent.networkAvailable, !parent.offline else { return }
+                _ = try await write(action: "birthdays_sync", body: ["items": .array(Array(items[offset..<min(items.count, offset + 200)]))])
+            }
+            state["hash"] = digest; state["sent"] = now; UserDefaults.standard.set(state, forKey: key)
+            if !items.isEmpty { await refresh() }
+        } catch { issue = "Não foi possível sincronizar os aniversários dos Contatos. " + error.localizedDescription }
+    }
     #if DEBUG
     func preview() {
-        snapshot.apiVersion = 6
+        snapshot.apiVersion = 7
         var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "America/Sao_Paulo")!
         let now = Date(), tomorrow = c.date(byAdding: .day, value: 1, to: now)!
         var today = NativeBirthday.fresh(), next = NativeBirthday.fresh()
