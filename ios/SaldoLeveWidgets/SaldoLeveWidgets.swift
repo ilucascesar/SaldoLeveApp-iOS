@@ -95,7 +95,23 @@ struct SaldoWidgetProvider: AppIntentTimelineProvider {
 struct SaldoWidgetView: View {
     let entry: SaldoWidgetEntry
     @Environment(\.widgetFamily) private var family
-    private var accent: Color { entry.configuration.color.color }
+    private var accent: Color {
+        guard entry.configuration.useAppSettings, entry.feed?.display != nil else { return entry.configuration.color.color }
+        return SaldoWidgetView.accentColor(display.accent)
+    }
+    static func accentColor(_ name: String) -> Color {
+        ["green": Color.green, "purple": .purple, "orange": .orange, "pink": .pink, "teal": .teal, "gray": .gray][name] ?? .blue
+    }
+    private var weight: Font.Weight { ["regular": Font.Weight.regular, "semibold": .semibold][display.fontWeight] ?? .medium }
+    // The title only shows when chosen in the app or typed in the widget editor.
+    private var showHeader: Bool { display.showHeader || !entry.configuration.customTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    @ViewBuilder private var widgetBackground: some View {
+        switch display.background {
+        case "tinted": ZStack { Color(uiColor: .systemBackground); accent.opacity(0.10) }
+        case "accent": LinearGradient(colors: [accent.opacity(0.28), accent.opacity(0.10)], startPoint: .topLeading, endPoint: .bottomTrailing).background(Color(uiColor: .systemBackground))
+        default: Color(uiColor: .systemBackground)
+        }
+    }
     private var display: SaldoWidgetDisplay {
         if entry.configuration.useAppSettings, let saved = entry.feed?.display { return saved }
         var value = SaldoWidgetDisplay()
@@ -124,42 +140,64 @@ struct SaldoWidgetView: View {
             else if family == .accessoryInline { Text("Hoje \(entry.feed?.taskCounts["today"] ?? 0) · Atrasadas \(entry.feed?.taskCounts["overdue"] ?? 0)") }
             else if family == .accessoryRectangular { lockScreen }
             else { GeometryReader { geometry in home(height: geometry.size.height) } }
-        }.containerBackground(for: .widget) { Color(uiColor: .systemBackground) }.widgetURL(Self.openURL).privacySensitive()
+        }.containerBackground(for: .widget) { widgetBackground }.widgetURL(Self.openURL).privacySensitive()
     }
     private func home(height: CGFloat) -> some View {
         let grouped = display.groupByDate && expanded
         let groupCount = grouped ? (display.states + ["undated"]).filter { state in ordered.contains { $0.state == state } }.count : 0
+        // A cached feed always shows its footer, so the user knows it is old.
+        let footer = display.showFooter || entry.cached
         // The full-page portrait widget fills its whole height instead of
         // stopping at the row limit chosen for the smaller sizes.
-        let capacity = SaldoWidgetLayout.capacity(height: Double(height), rowHeight: Double(rowHeight), showSubtotals: false, groupCount: groupCount, requested: portrait ? SaldoWidgetDisplay.maximumRows : display.count)
+        let capacity = SaldoWidgetLayout.capacity(height: Double(height), rowHeight: Double(rowHeight), showSubtotals: false, groupCount: groupCount, requested: portrait ? SaldoWidgetDisplay.maximumRows : display.count, header: showHeader, footer: footer)
         let selected = SaldoWidgetSelection.items(ordered, limit: capacity, grouped: grouped, states: display.states, focus: display.scope == "focus")
         return VStack(alignment: .leading, spacing: 4) {
-            HStack { Image(systemName: "checklist").foregroundStyle(accent); Text(title).font(.system(size: 13, weight: .semibold)).lineLimit(1); Spacer(minLength: 0); if expanded { Image(systemName: "arrow.up.left.and.arrow.down.right").font(.caption2).foregroundStyle(.secondary) } }.frame(height: 20)
+            if showHeader { HStack { Image(systemName: "checklist").foregroundStyle(accent); Text(title).font(.system(size: 13, weight: .semibold)).lineLimit(1); Spacer(minLength: 0) }.frame(height: 20) }
             if let feed = entry.feed {
                 if selected.isEmpty { Spacer(minLength: 0); Label("Tudo em ordem", systemImage: "checkmark").font(.caption).foregroundStyle(.secondary); Spacer(minLength: 0) }
                 else if grouped {
                     ForEach(display.states + ["undated"], id: \.self) { state in
                         let items = selected.filter { $0.state == state }
                         if !items.isEmpty {
-                            Text(label(state)).font(.system(size: 10, weight: .semibold)).foregroundStyle(state == "overdue" ? Color.red : .secondary).frame(height: 12)
-                            VStack(spacing: 0) { ForEach(items) { item in row(item) } }
+                            HStack(spacing: 4) {
+                                Text(label(state)).font(.system(size: 10, weight: .semibold)).foregroundStyle(state == "overdue" ? Color.red : state == "today" ? accent : .secondary)
+                                if display.groupCounts, let total = feed.taskCounts[state] { Text("\(total)").font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary) }
+                                Spacer(minLength: 0)
+                            }.frame(height: 12)
+                            rows(items)
                         }
                     }
-                } else { VStack(spacing: 0) { ForEach(selected) { item in row(item) } } }
+                } else { rows(selected) }
                 Spacer(minLength: 0)
-                HStack(spacing: 3) { if entry.cached { Image(systemName: "wifi.slash") }; Text(updated(feed)).lineLimit(1); Spacer(minLength: 0) }.font(.system(size: 9)).foregroundStyle(.secondary).frame(height: 12)
+                if footer { HStack(spacing: 3) { if entry.cached { Image(systemName: "wifi.slash") }; Text(updated(feed)).lineLimit(1); Spacer(minLength: 0) }.font(.system(size: 9)).foregroundStyle(.secondary).frame(height: 12) }
             } else {
                 Spacer(minLength: 0); Text(entry.error ?? "Conecte sua conta").font(.system(size: 12)).foregroundStyle(.secondary); Spacer(minLength: 0)
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
     private func label(_ state: String) -> String { ["today":"Hoje", "overdue":"Atrasadas", "upcoming":"Próximas", "undated":"Sem data"][state] ?? state }
+    private func rows(_ items: [SaldoWidgetItem]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { offset, item in
+                row(item).overlay(alignment: .top) { if display.separators && offset > 0 { Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 0.5).padding(.leading, display.marker == "none" ? 0 : 18) } }
+            }
+        }
+    }
+    @ViewBuilder private func marker(_ item: SaldoWidgetItem) -> some View {
+        let color = item.state == "overdue" ? Color.red : accent
+        switch display.marker {
+        case "dot": Circle().fill(color).frame(width: 6, height: 6).frame(width: 11)
+        case "bar": RoundedRectangle(cornerRadius: 1.5).fill(color).frame(width: 3, height: max(10, rowHeight - 8)).frame(width: 11)
+        case "none": EmptyView()
+        default: Circle().stroke(color, lineWidth: 1.2).frame(width: 11, height: 11)
+        }
+    }
     private func row(_ item: SaldoWidgetItem) -> some View {
         HStack(alignment: .center, spacing: 7) {
-            Circle().stroke(item.state == "overdue" ? Color.red : accent, lineWidth: 1.2).frame(width: 11, height: 11)
+            marker(item)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {
-                    Text(display.showSubtasks ? (item.subtitle.map { item.title + " · " + $0 } ?? item.title) : item.title).font(.system(size: CGFloat(display.textSize), weight: .medium)).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(display.showSubtasks ? (item.subtitle.map { item.title + " · " + $0 } ?? item.title) : item.title).font(.system(size: CGFloat(display.textSize), weight: weight)).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                     if display.compact && display.showDates { Text(item.dueLabel).font(.system(size: 9)).foregroundStyle(item.state == "overdue" ? Color.red : .secondary).lineLimit(1).fixedSize() }
                 }
                 if !display.compact && display.showDates { Text(item.dueLabel).font(.system(size: 9)).foregroundStyle(item.state == "overdue" ? Color.red : .secondary).lineLimit(1) }
@@ -172,15 +210,12 @@ struct SaldoWidgetView: View {
 }
 struct SaldoLeveWidgets: Widget {
     let kind = "SaldoLeveWidgets"
-    private var families: [WidgetFamily] {
-        var result: [WidgetFamily] = [.systemSmall, .systemMedium, .systemLarge, .accessoryInline, .accessoryCircular, .accessoryRectangular]
-        if #available(iOS 27.0, *) { result.append(.systemExtraLargePortrait) }
-        return result
-    }
+    // The full-page vertical size belongs only to "Lista ampliada", so the
+    // gallery never shows two identical portrait widgets.
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: kind, intent: SaldoWidgetConfiguration.self, provider: SaldoWidgetProvider()) { SaldoWidgetView(entry: $0) }
-            .configurationDisplayName("SaldoLeve").description("Tarefas, pendências e agenda do seu dia.")
-            .supportedFamilies(families)
+            .configurationDisplayName("SaldoLeve").description("Tarefas de hoje, atrasadas e próximas em tamanhos pequeno, médio e grande.")
+            .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .accessoryInline, .accessoryCircular, .accessoryRectangular])
     }
 }
 

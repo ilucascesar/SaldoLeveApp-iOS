@@ -30,17 +30,46 @@ struct SaldoWidgetDisplay: Codable, Equatable {
     var showToday = true
     var showOverdue = true
     var showUpcoming = true
-    var states: [String] { scope == "focus" ? [("today", showToday), ("overdue", showOverdue), ("upcoming", showUpcoming)].filter { $0.1 }.map { $0.0 } : ["today", "overdue", "upcoming"] }
+    var showHeader = false
+    var showFooter = true
+    var separators = false
+    var groupCounts = true
+    var overdueFirst = false
+    var accent = "blue"
+    var background = "system"
+    var marker = "circle"
+    var fontWeight = "medium"
+    private var order: [String] { overdueFirst ? ["overdue", "today", "upcoming"] : ["today", "overdue", "upcoming"] }
+    var states: [String] { scope == "focus" ? order.filter { ["today": showToday, "overdue": showOverdue, "upcoming": showUpcoming][$0] ?? true } : order }
+    init() {}
+    // Older servers and cached feeds do not send the 2.7.0 appearance keys;
+    // every missing key keeps its default instead of failing the whole feed.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func value<T: Decodable>(_ key: CodingKeys, _ fallback: T) -> T { ((try? c.decodeIfPresent(T.self, forKey: key)) ?? nil) ?? fallback }
+        let base = Self()
+        scope = value(.scope, base.scope); count = value(.count, base.count); textSize = value(.textSize, base.textSize); upcomingDays = value(.upcomingDays, base.upcomingDays)
+        compact = value(.compact, base.compact); showSubtotals = value(.showSubtotals, base.showSubtotals); showDates = value(.showDates, base.showDates)
+        showSubtasks = value(.showSubtasks, base.showSubtasks); groupByDate = value(.groupByDate, base.groupByDate)
+        showToday = value(.showToday, base.showToday); showOverdue = value(.showOverdue, base.showOverdue); showUpcoming = value(.showUpcoming, base.showUpcoming)
+        showHeader = value(.showHeader, base.showHeader); showFooter = value(.showFooter, base.showFooter); separators = value(.separators, base.separators)
+        groupCounts = value(.groupCounts, base.groupCounts); overdueFirst = value(.overdueFirst, base.overdueFirst)
+        accent = value(.accent, base.accent); background = value(.background, base.background); marker = value(.marker, base.marker); fontWeight = value(.fontWeight, base.fontWeight)
+    }
+    private enum CodingKeys: String, CodingKey {
+        case scope, count, textSize, upcomingDays, compact, showSubtotals, showDates, showSubtasks, groupByDate, showToday, showOverdue, showUpcoming
+        case showHeader, showFooter, separators, groupCounts, overdueFirst, accent, background, marker, fontWeight
+    }
 }
 
 enum SaldoWidgetLayout {
     // Header, optional subtotals, group headings, footer and VStack gaps must
     // fit before rows are allocated. The taller family uses the same list.
-    static func capacity(height: Double, rowHeight: Double, showSubtotals: Bool, groupCount: Int, requested: Int) -> Int {
+    static func capacity(height: Double, rowHeight: Double, showSubtotals: Bool, groupCount: Int, requested: Int, header: Bool = true, footer: Bool = true) -> Int {
         guard height.isFinite, rowHeight.isFinite, rowHeight > 0 else { return 0 }
         let groups = max(0, groupCount)
-        let children = 3 + (showSubtotals ? 1 : 0) + (groups > 0 ? groups * 2 : 1)
-        let reserved = Double(32 + (showSubtotals ? 29 : 0) + groups * 12 + max(0, children - 1) * 4)
+        let children = 1 + (header ? 1 : 0) + (footer ? 1 : 0) + (showSubtotals ? 1 : 0) + (groups > 0 ? groups * 2 : 1)
+        let reserved = Double((header ? 20 : 0) + (footer ? 12 : 0) + (showSubtotals ? 29 : 0) + groups * 12 + max(0, children - 1) * 4)
         let available = max(0, min(Double(SaldoWidgetDisplay.maximumRows), floor((height - reserved) / rowHeight)))
         return min(max(0, requested), Int(available))
     }
@@ -51,7 +80,8 @@ enum SaldoWidgetSelection {
     static func items(_ input: [SaldoWidgetItem], limit: Int, grouped: Bool, states: [String], focus: Bool) -> [SaldoWidgetItem] {
         let items = focus ? input.filter { states.contains($0.state) } : input
         guard grouped else { return Array(items.prefix(max(0, limit))) }
-        let order = (focus ? states : ["today", "overdue", "upcoming"]) + ["undated"]
+        let base = ["today", "overdue", "upcoming"]
+        let order = (focus || Set(states) == Set(base) ? states : base) + ["undated"]
         let buckets = order.map { state in items.filter { $0.state == state } }
         var chosen = Set<String>()
         for bucket in buckets where chosen.count < limit { if let first = bucket.first { chosen.insert(first.id) } }
