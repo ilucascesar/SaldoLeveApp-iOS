@@ -99,7 +99,7 @@ final class InteractionTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-preview", "--preview-dashboard-refresh"]
         app.launch()
-        XCTAssertTrue(app.navigationBars["Visão geral"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.navigationBars["Despesas"].waitForExistence(timeout: 20))
         let count = app.staticTexts["finance-read-count"]
         expectation(for: NSPredicate(format: "label == %@", "Consultas confirmadas: 1"), evaluatedWith: count)
         waitForExpectations(timeout: 10)
@@ -133,7 +133,7 @@ final class InteractionTests: XCTestCase {
         XCTAssertEqual(String(describing: pending.value ?? ""), "0", "Returning to the layout root must not discard the pending change")
         app.buttons["layout-dashboard-order"].tap()
         XCTAssertFalse(app.switches.matching(NSPredicate(format: "label CONTAINS %@", "Pendências do mês")).firstMatch.exists, "There is only one pending-visibility switch")
-        app.navigationBars.buttons["Visão geral"].firstMatch.tap()
+        app.navigationBars.buttons["Despesas: resumo e seções"].firstMatch.tap()
         app.buttons["layout-save"].tap()
         XCTAssertTrue(app.buttons["Categorias e filtros"].waitForExistence(timeout: 8))
         app.buttons["Categorias e filtros"].tap()
@@ -144,7 +144,7 @@ final class InteractionTests: XCTestCase {
         app.navigationBars.buttons["Layout e personalização"].firstMatch.tap()
         app.navigationBars.buttons["Configurações"].firstMatch.tap()
         app.buttons["Fechar"].firstMatch.tap()
-        app.tabBars.buttons["Visão geral"].tap()
+        app.tabBars.buttons["Despesas"].tap()
         XCTAssertFalse(app.staticTexts["Pendências do mês"].exists, "The dashboard renders the confirmed hidden section")
     }
     func testETaskDrawerKeepsOnlyThreeFixedScopes() {
