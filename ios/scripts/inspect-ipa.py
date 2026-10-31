@@ -48,7 +48,7 @@ with zipfile.ZipFile(target) as archive:
         assert b'systemExtraLargePortrait' in archive.read(widget + 'SaldoLeveWidgets'), 'Portrait widget family missing'
         if tuple(map(int, main['CFBundleShortVersionString'].split('.'))) >= (2, 5, 3):
             assert b'SaldoLevePortraitWidgets' in archive.read(widget + 'SaldoLeveWidgets'), 'Dedicated portrait widget missing'
-    if main['CFBundleShortVersionString'].startswith('2.5.'):
+    if tuple(map(int, main['CFBundleShortVersionString'].split('.'))) >= (2, 5, 0):
         assert main.get('NSContactsUsageDescription'), 'Contacts purpose is required'
         assert b'--preview-contacts' not in archive.read(app + 'SaldoLeve'), 'Contact fixtures in Release'
         assert b'--preview-birthdays' not in archive.read(app + 'SaldoLeve'), 'Birthday fixtures in Release'
