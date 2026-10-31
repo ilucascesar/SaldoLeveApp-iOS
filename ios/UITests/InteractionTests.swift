@@ -78,9 +78,9 @@ final class InteractionTests: XCTestCase {
         let edit = home.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Edit", "Editar")).firstMatch
         if !edit.waitForExistence(timeout: 5) { dump("edit"); XCTFail("Home Screen edit mode did not open"); return }
         edit.tap()
-        let add = home.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Add Widget", "Adicionar Widget")).firstMatch
-        if !add.waitForExistence(timeout: 5) { dump("add"); XCTFail("Add Widget is missing"); return }
-        add.tap()
+        let addMenu = home.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Add Widget", "Adicionar Widget")).firstMatch
+        if !addMenu.waitForExistence(timeout: 5) { dump("add"); XCTFail("Add Widget is missing"); return }
+        addMenu.tap()
         let search = home.searchFields.firstMatch
         if !search.waitForExistence(timeout: 8) { dump("search"); XCTFail("Widget gallery search is missing"); return }
         search.tap(); search.typeText("SaldoLeve")
