@@ -10,6 +10,8 @@ Marque run_ui_tests quando precisar validar a interface: a seleção atual cobre
 
 A compilação não recebe senha Apple, certificado ou perfil de provisionamento. Instale o IPA com seu instalador de sideload e sua própria conta Apple. A assinatura gratuita precisa ser renovada. O app exige uma instalação compatível do backend e um login válido nessa instalação.
 
+Na versão 2.7.2, os avisos ao chegar ou sair de um local funcionam com ou sem data: com a permissão “Sempre”, o iOS acorda o app a cada travessia e o aviso sai na hora, mesmo com o app fechado. O local é escolhido num mapa com marcador e raio ajustável, há simulação de chegada e saída e um histórico das detecções. Ao abrir, o app mostra “Atualizando” em vez de “Sem conexão” enquanto o servidor responde. O backend continua o 2.7.0.
+
 Na versão 2.7.1, “E aí Siri, me lembra de…” chega ao SaldoLeve pelo app Lembretes: com a importação ativa em Configurações → Siri e Atalhos, os lembretes pendentes da lista escolhida (padrão “SaldoLeve”) viram tarefas e são concluídos no Lembretes depois da confirmação do servidor. O backend continua o 2.7.0.
 
 Na versão 2.7.0, o widget ganha opções de aparência (cor, fundo, marcador, separadores, contagens) e um simulador fixo; aniversariantes podem ser concluídos, ter avisos persistentes e sincronizar com os Contatos; a Siri cria tarefas (“criar tarefa”, “adicionar lembrete” ou “me lembre” no SaldoLeve, respondendo falando ou escrevendo); o ícone oferece Nova tarefa e Suspender avisos; e há lembretes por local ao chegar ou sair de lugares salvos. Envie primeiro o backend 2.7.0 (API 7).
