@@ -49,17 +49,62 @@ final class InteractionTests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
         print("WIDGET_HOME_MENU_BEGIN\n" + home.debugDescription + "\nWIDGET_HOME_MENU_END")
+        // The icon menu belongs to the main SaldoLeve widget: small, medium and
+        // large. The vertical size lives only in SaldoLeve · Lista ampliada, so
+        // the gallery no longer lists the same vertical widget twice.
+        let large = home.buttons["Large widget"].firstMatch
+        XCTAssertTrue(large.waitForExistence(timeout: 8))
+        XCTAssertTrue(home.buttons["Small widget"].firstMatch.exists && home.buttons["Medium-sized widget"].firstMatch.exists)
         let portrait = home.buttons["Extra Large Portrait widget"].firstMatch
-        XCTAssertTrue(portrait.waitForExistence(timeout: 8))
-        portrait.tap()
+        XCTAssertFalse(portrait.exists && portrait.isEnabled, "The main widget does not duplicate the vertical list")
+        large.tap()
         let addWidget = home.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Add Widget", "Adicionar Widget")).firstMatch
         if addWidget.waitForExistence(timeout: 3) { addWidget.tap() }
+        waitForWidget(home, minWidth: 0.75, minHeight: 0.3)
+        let installed = XCTAttachment(screenshot: home.screenshot())
+        installed.name = "widget-large-installed"; installed.lifetime = .keepAlways; add(installed)
+    }
+    func testAXPortraitListFromWidgetGallery() {
+        XCUIDevice.shared.press(.home)
+        let home = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        func dump(_ stage: String) {
+            let shot = XCTAttachment(screenshot: home.screenshot()); shot.name = "gallery-" + stage; shot.lifetime = .keepAlways; add(shot)
+            print("GALLERY_" + stage + "_BEGIN\n" + home.debugDescription + "\nGALLERY_" + stage + "_END")
+        }
+        // Edit mode from an empty spot of the Home Screen, then Edit → Add Widget.
+        home.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.72)).press(forDuration: 2)
+        let editHome = home.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Edit Home Screen", "Editar Tela de Início")).firstMatch
+        if editHome.waitForExistence(timeout: 2) { editHome.tap() }
+        let edit = home.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Edit", "Editar")).firstMatch
+        if !edit.waitForExistence(timeout: 5) { dump("edit"); XCTFail("Home Screen edit mode did not open"); return }
+        edit.tap()
+        let add = home.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Add Widget", "Adicionar Widget")).firstMatch
+        if !add.waitForExistence(timeout: 5) { dump("add"); XCTFail("Add Widget is missing"); return }
+        add.tap()
+        let search = home.searchFields.firstMatch
+        if !search.waitForExistence(timeout: 8) { dump("search"); XCTFail("Widget gallery search is missing"); return }
+        search.tap(); search.typeText("SaldoLeve")
+        let app = home.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "SaldoLeve")).allElementsBoundByIndex.first { $0.isHittable && $0.elementType != .icon }
+        guard let app else { dump("results"); XCTFail("SaldoLeve is not listed in the widget gallery"); return }
+        app.tap()
+        let list = home.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Lista ampliada")).firstMatch
+        for _ in 0..<4 where !(list.exists && list.isHittable) { home.swipeLeft() }
+        if !(list.exists && list.isHittable) { dump("kinds"); XCTFail("SaldoLeve · Lista ampliada is missing from the gallery"); return }
+        let addList = home.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Add Widget", "Adicionar Widget")).firstMatch
+        if !addList.waitForExistence(timeout: 5) { dump("add-list"); XCTFail("Add Widget is missing for the vertical list"); return }
+        addList.tap()
+        waitForWidget(home, minWidth: 0.75, minHeight: 0.6)
+        let installed = XCTAttachment(screenshot: home.screenshot())
+        installed.name = "widget-portrait-installed"; installed.lifetime = .keepAlways; add(installed)
+        print("WIDGET_PORTRAIT_INSTALLED\n" + home.debugDescription)
+    }
+    private func waitForWidget(_ home: XCUIApplication, minWidth: CGFloat, minHeight: CGFloat) {
         var firstSized: Date?
         let screen = home.frame
         let resized = NSPredicate { _, _ in
-            let visible = home.icons.matching(identifier: "SaldoLeve").allElementsBoundByIndex.contains { element in
+            let visible = home.icons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "SaldoLeve")).allElementsBoundByIndex.contains { element in
                 let frame = element.frame
-                return frame.width > screen.width * 0.75 && frame.height > screen.height * 0.6 && frame.minX >= 0 && frame.maxX <= screen.maxX + 2
+                return frame.width > screen.width * minWidth && frame.height > screen.height * minHeight && frame.minX >= 0 && frame.maxX <= screen.maxX + 2
             }
             guard visible else { firstSized = nil; return false }
             if firstSized == nil { firstSized = Date() }
@@ -67,9 +112,6 @@ final class InteractionTests: XCTestCase {
         }
         expectation(for: resized, evaluatedWith: home)
         waitForExpectations(timeout: 30)
-        let installed = XCTAttachment(screenshot: home.screenshot())
-        installed.name = "widget-portrait-installed"; installed.lifetime = .keepAlways; add(installed)
-        print("WIDGET_PORTRAIT_INSTALLED\n" + home.debugDescription)
     }
     func testBSettingsCenterGroupsAndSearch() {
         let app = XCUIApplication()
@@ -269,9 +311,11 @@ final class InteractionTests: XCTestCase {
         app.launchArguments = ["--ui-preview", "--preview-payments"]
         app.launch()
         let entry = app.buttons["Pagar / antecipar parcelas"].firstMatch
-        let more = app.buttons["Mais opções"].firstMatch
-        XCTAssertTrue(app.descendants(matching: .any)["task-title"].firstMatch.waitForExistence(timeout: 20))
-        for _ in 0..<6 where !more.isHittable { app.swipeUp() }
+        // The task's own section; the Agenda toolbar behind the editor has a "Mais opções" menu too.
+        let more = app.descendants(matching: .any)["task-more-options"].firstMatch
+        let title = app.descendants(matching: .any)["task-title"].firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 20))
+        for _ in 0..<8 where !(more.exists && more.isHittable) { app.swipeUp() }
         XCTAssertTrue(more.waitForExistence(timeout: 5)); more.tap()
         XCTAssertTrue(entry.waitForExistence(timeout: 5)); entry.tap()
         let original = app.textFields["installment-original-parcela1"]
