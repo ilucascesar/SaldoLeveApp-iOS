@@ -322,13 +322,19 @@ final class InteractionTests: XCTestCase {
         let original = app.textFields["installment-original-parcela1"]
         let paid = app.textFields["installment-paid-parcela1"]
         XCTAssertTrue(original.waitForExistence(timeout: 10)); XCTAssertTrue(paid.exists)
+        // The sheet may still be sliding in; a coordinate tap during the animation misses the field.
+        expectation(for: NSPredicate(format: "isHittable == true"), evaluatedWith: paid)
+        waitForExpectations(timeout: 10)
         paid.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap(); let paidCount = (paid.value as? String ?? "").count
         paid.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: paidCount) + "650,00")
         let discount = app.staticTexts["installment-discount-parcela1"]
-        XCTAssertTrue(discount.label.contains("350,00"))
+        expectation(for: NSPredicate(format: "label CONTAINS %@", "350,00"), evaluatedWith: discount)
+        waitForExpectations(timeout: 5)
         original.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap(); let originalCount = (original.value as? String ?? "").count
         original.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: originalCount) + "1200,00")
-        XCTAssertEqual(paid.value as? String, "650,00"); XCTAssertTrue(discount.label.contains("550,00"))
+        expectation(for: NSPredicate(format: "label CONTAINS %@", "550,00"), evaluatedWith: discount)
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(paid.value as? String, "650,00")
         app.buttons["Pronto"].firstMatch.tap()
         let attachment = XCTAttachment(screenshot: app.screenshot()); attachment.lifetime = .keepAlways; add(attachment)
         app.buttons["Cancelar"].firstMatch.tap()
