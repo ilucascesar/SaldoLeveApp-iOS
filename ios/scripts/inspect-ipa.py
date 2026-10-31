@@ -58,6 +58,9 @@ with zipfile.ZipFile(target) as archive:
         shortcuts = [item.get('UIApplicationShortcutItemType') for item in main.get('UIApplicationShortcutItems', [])]
         assert len(shortcuts) == 3 and all(shortcuts), 'Home Screen quick actions missing'
         assert any(name.startswith(app + 'Metadata.appintents/') for name in archive.namelist()), 'Siri App Intents metadata missing'
+    if tuple(map(int, main['CFBundleShortVersionString'].split('.'))) >= (2, 7, 1):
+        assert main.get('NSRemindersFullAccessUsageDescription') and main.get('NSRemindersUsageDescription'), 'Reminders purpose is required'
+        assert b'nativeRemindersImport' in archive.read(app + 'SaldoLeve'), 'Reminders import missing'
 print(json.dumps({'file': str(target.resolve()), 'version': main['CFBundleShortVersionString'], 'build': main['CFBundleVersion'],
                   'app': main['CFBundleIdentifier'], 'widget': extension['CFBundleIdentifier'], 'platform': 'iPhoneOS/arm64',
                   'bytes': target.stat().st_size, 'sha256': hashlib.sha256(target.read_bytes()).hexdigest()}, ensure_ascii=False))
