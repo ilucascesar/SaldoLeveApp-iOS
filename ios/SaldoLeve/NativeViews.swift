@@ -11,6 +11,7 @@ struct NativeRootView: View {
     @ObservedObject private var quickActions = NativeQuickActions.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var pendingURL: URL?
+    @State private var wasInBackground = false
     @AppStorage("nativeAppearance") private var appearance = "system"
     private var active: Bool { scenePhase == .active }
     var body: some View {
@@ -30,18 +31,25 @@ struct NativeRootView: View {
         }
         .tint(nativeBlue).preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil).environment(\.locale, Locale(identifier: "pt_BR")).privacySensitive()
         .overlay {
-            if !active {
+            // Hides the data in the app switcher. Brief inactive moments (Face ID,
+            // Central de Controle, a banner) no longer cover the screen and blink.
+            if scenePhase == .background || (scenePhase == .inactive && wasInBackground) {
                 Color(uiColor: .systemGroupedBackground).ignoresSafeArea()
                     .overlay { Label("SaldoLeve", systemImage: "checkmark.circle.fill").font(.title.bold()).foregroundStyle(nativeBlue) }
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if store.user != nil && (store.offline || !store.networkAvailable || store.needsSync) {
+            if store.user != nil && (!store.networkAvailable || store.connectionProblem) && (store.offline || store.needsSync || !store.networkAvailable) {
                 HStack {
                     Label("Sem conexão com o servidor · somente consulta", systemImage: "wifi.slash").font(.caption)
                     Spacer()
-                    Button("Atualizar") { Task { await store.refresh() } }.font(.caption.bold()).disabled(store.refreshing || !store.networkAvailable)
+                    if store.refreshing { ProgressView().controlSize(.small) }
+                    else { Button("Atualizar") { Task { await store.refresh() } }.font(.caption.bold()).disabled(!store.networkAvailable) }
                 }.padding(10).background(Color.orange.opacity(0.15)).accessibilityIdentifier("server-offline-banner")
+            } else if store.user != nil && store.offline {
+                // Opening: last confirmed data on screen while the server answers.
+                HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Atualizando com o servidor…").font(.caption); Spacer() }
+                    .foregroundStyle(.secondary).padding(.horizontal, 10).padding(.vertical, 6).background(.bar).accessibilityIdentifier("server-refresh-banner")
             }
         }
         .task { if store.isPreview { store.loadPreview() } else { await store.ensureStarted() }; NativeQuickActions.refresh(); runQuickAction(); await NativeRemindersImport.shared.run(store) }
@@ -66,6 +74,7 @@ struct NativeRootView: View {
         .onChange(of: store.user?.id) { _ in openWidgetDestination() }
         .onChange(of: quickActions.pending) { _ in runQuickAction() }
         .onChange(of: scenePhase) { phase in
+            if phase == .background { wasInBackground = true } else if phase == .active { wasInBackground = false }
             if phase != .active { store.persist() }
             if phase == .background && UserDefaults.standard.bool(forKey: "nativeBiometrics") { store.locked = store.user != nil }
             if phase == .active {

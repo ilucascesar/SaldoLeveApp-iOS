@@ -15,6 +15,9 @@ final class NativeStore: ObservableObject {
     @Published var working = false
     @Published var offline = false
     @Published var needsSync = true
+    // True only after a request to the server actually failed. While the first
+    // refresh is still running the app shows "Atualizando", not "Sem conexão".
+    @Published var connectionProblem = false
     @Published var requiresPasswordChange = false
     @Published var message: String?
     @Published var syncedAt: Date?
@@ -125,7 +128,7 @@ final class NativeStore: ObservableObject {
             apply(session)
             if session.authenticated { await refresh() }
         } catch {
-            offline = true; needsSync = true
+            offline = true; needsSync = true; connectionProblem = !NativeRequestError.isCancellation(error)
             if let e = error as? NativeFailure, [401, 428].contains(e.status) {
                 user = nil; api.clearSession(); reminders.clear(disable: false)
                 _ = try? await api.restore()
@@ -169,23 +172,38 @@ final class NativeStore: ObservableObject {
         guard networkAvailable else { offline = true; needsSync = true; return }
         refreshing = true; defer { refreshing = false }
         do {
-            let next = try await api.get(NativeSnapshot.self, action: "org_bootstrap")
+            let next = try await load(NativeSnapshot.self, action: "org_bootstrap")
             guard next.configured else { throw NativeFailure(next.message ?? "Atualize as tabelas de Tarefas na hospedagem.") }
             let id = user?.id ?? ""
             let index = await Task.detached(priority: .userInitiated) { NativeTaskIndex(next, userID: id) }.value
             guard user?.id == id else { return }
             UserDefaults.standard.set(next.preferences.text("theme"), forKey: "nativeTheme")
-            taskIndex = index; snapshot = next; offline = false; needsSync = false; syncedAt = Date()
+            taskIndex = index; snapshot = next; offline = false; needsSync = false; connectionProblem = false; syncedAt = Date()
             persist()
             await refreshExpenseReminders(); await platform.refresh()
         } catch {
             if NativeRequestError.isCancellation(error) { return }
-            offline = true; needsSync = true
+            offline = true; needsSync = true; connectionProblem = true
             if let e = error as? NativeFailure, [401, 428].contains(e.status) {
                 user = nil; api.clearSession(); reminders.clear(disable: false)
             }
-            report(error)
+            // A dropped connection is already shown by the top banner; an alert
+            // on every automatic refresh only interrupts. Server messages still show.
+            if !Self.isConnectionError(error) { report(error) }
         }
+    }
+    // Right after the app returns from the background the first request often
+    // fails with "connection lost"; one quick retry avoids a false offline state.
+    private func load<T: Decodable>(_ type: T.Type, action: String) async throws -> T {
+        do { return try await api.get(type, action: action) }
+        catch {
+            guard Self.isConnectionError(error), !NativeRequestError.isCancellation(error), networkAvailable else { throw error }
+            try await Task.sleep(nanoseconds: 1_500_000_000)
+            return try await api.get(type, action: action)
+        }
+    }
+    static func isConnectionError(_ error: Error) -> Bool {
+        error is URLError || (error as? NativeFailure).map { $0.status == 0 || $0.status >= 500 } == true
     }
     func refreshExpenseReminders() async {
         guard user != nil, !isPreview else { return }
@@ -222,8 +240,8 @@ final class NativeStore: ObservableObject {
     }
     func noteConnectionFailure(_ error: Error) {
         guard !NativeRequestError.isCancellation(error) else { return }
-        if error is URLError || !networkAvailable || (error as? NativeFailure).map({ $0.status == 0 || $0.status >= 500 }) == true {
-            offline = true; needsSync = true; finance.needsSync = true
+        if !networkAvailable || Self.isConnectionError(error) {
+            offline = true; needsSync = true; finance.needsSync = true; connectionProblem = true
         }
     }
     @discardableResult
@@ -310,7 +328,7 @@ final class NativeStore: ObservableObject {
         NativeCache.remove(api.storageID)
         reminders.clear(); user = nil; previousUserID = nil; taskIndex = NativeTaskIndex(); snapshot = NativeSnapshot()
         finance.reset(); platform.reset(); openedFinance = nil; expenseReminderIssue = nil
-        syncedAt = nil; offline = false; needsSync = true; locked = false
+        syncedAt = nil; offline = false; needsSync = true; connectionProblem = false; locked = false
     }
     func persist() {
         guard let user else { return }
@@ -392,7 +410,7 @@ extension NativeStore {
         taskIndex = NativeTaskIndex(data, userID: "preview"); snapshot = data; loading = false; offline = false; needsSync = false; locked = false; syncedAt = Date()
         if ProcessInfo.processInfo.arguments.contains("--preview-current-offline") {
             var current = project; current.fields["title"] = .string("Versão atual no iPhone"); current.fields["revision"] = .number(2)
-            offline = true; needsSync = true
+            offline = true; needsSync = true; connectionProblem = true
             snapshot.items = snapshot.items.map { $0.id == project.id ? current : $0 }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.openedTask = project }
         }

@@ -25,6 +25,11 @@ import UserNotifications
 }
 
 final class NativeAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        // iOS relaunches the app in the background when a saved place is crossed.
+        NativeGeofence.shared.start()
+        return true
+    }
     func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
         if let item = options.shortcutItem { Task { @MainActor in NativeQuickActions.shared.pending = item.type } }
         let configuration = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
@@ -203,20 +208,180 @@ struct NativeAppShortcuts: AppShortcutsProvider {
     }
 }
 
-// MARK: Location ("Durante o uso" is enough for arrive/leave notifications)
+// MARK: Location ("ao chegar" / "ao sair", with or without a date)
 
 enum NativeLocationAccess {
-    static var allowed: Bool { [.authorizedWhenInUse, .authorizedAlways].contains(CLLocationManager().authorizationStatus) }
-    static func trigger(_ group: NativeLocationReminder.Group) -> UNLocationNotificationTrigger {
-        let region = CLCircularRegion(center: CLLocationCoordinate2D(latitude: group.place.latitude, longitude: group.place.longitude), radius: group.place.radius, identifier: "sl-place-" + group.place.id + "-" + group.trigger)
-        region.notifyOnEntry = group.trigger == "arrive"; region.notifyOnExit = group.trigger == "leave"
-        // Repeats while the tasks stay pending: every arrival (or departure) warns.
-        return UNLocationNotificationTrigger(region: region, repeats: true)
+    static var status: CLAuthorizationStatus { CLLocationManager().authorizationStatus }
+    static var allowed: Bool { [.authorizedWhenInUse, .authorizedAlways].contains(status) }
+    static var always: Bool { status == .authorizedAlways }
+    // With "Localização exata" off, iOS does not report arrivals or departures.
+    static var precise: Bool { CLLocationManager().accuracyAuthorization == .fullAccuracy }
+}
+
+// The alert prepared for a place and direction, kept on the iPhone so it can
+// be shown even when iOS wakes the app in the background without a network.
+struct NativeGeofenceAlert: Codable, Equatable {
+    var place: String
+    var title: String
+    var body: String
+    var taskID: String
+    var sound: Bool
+    var content: UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = title; content.body = body; content.sound = sound ? .default : nil
+        content.threadIdentifier = "sl-task-location"; content.userInfo = ["taskID": taskID]
+        return content
+    }
+    static func make(_ group: NativeLocationReminder.Group, preferences: NativeNotificationPreferences) -> NativeGeofenceAlert {
+        let verb = group.trigger == "leave" ? "Ao sair de " : "Ao chegar em "
+        let titles = group.titles
+        let body = titles.count == 1 ? titles[0] : "\(titles.count) tarefas: " + titles.prefix(4).joined(separator: ", ") + (titles.count > 4 ? "…" : "")
+        return NativeGeofenceAlert(place: group.place.name, title: preferences.showDetails ? verb + group.place.name : "SaldoLeve",
+                                   body: preferences.showDetails ? body : "Você tem um lembrete por local. Abra o app para consultar.",
+                                   taskID: group.taskIDs.count == 1 ? group.taskIDs[0] : "", sound: preferences.sound)
     }
 }
 
+// Arrive/leave alerts. With "Sempre", iOS wakes the app at each crossing
+// (region monitoring, even with the app closed) and the alert is posted on
+// the spot. With only "Durante o uso", the notification location triggers are
+// the fallback. Regions are compared and only changed ones are registered
+// again: re-registering on every sync reset their state and lost crossings.
+@MainActor final class NativeGeofence: NSObject, ObservableObject, CLLocationManagerDelegate {
+    static let shared = NativeGeofence()
+    @Published private(set) var log: [String]
+    @Published private(set) var monitored = 0
+    private let manager = CLLocationManager()
+    private static let alertsKey = "nativeGeofenceAlerts", logKey = "nativeGeofenceLog", lastKey = "nativeGeofenceLast"
+    override init() {
+        log = UserDefaults.standard.stringArray(forKey: Self.logKey) ?? []
+        super.init()
+        manager.delegate = self
+        monitored = manager.monitoredRegions.filter { $0.identifier.hasPrefix("sl-place-") }.count
+    }
+    // Called at launch so a background relaunch for a crossing reaches the delegate.
+    func start() {}
+    private var alerts: [String: NativeGeofenceAlert] {
+        UserDefaults.standard.data(forKey: Self.alertsKey).flatMap { try? JSONDecoder().decode([String: NativeGeofenceAlert].self, from: $0) } ?? [:]
+    }
+    func apply(_ groups: [NativeLocationReminder.Group], preferences: NativeNotificationPreferences) async {
+        var prepared: [String: NativeGeofenceAlert] = [:]
+        for group in groups { prepared[group.place.id + "-" + group.trigger] = NativeGeofenceAlert.make(group, preferences: preferences) }
+        if let data = try? JSONEncoder().encode(prepared) { UserDefaults.standard.set(data, forKey: Self.alertsKey) }
+        let monitoring = NativeLocationAccess.always && CLLocationManager.isMonitoringAvailable(for: CLCircularRegion.self)
+        syncRegions(monitoring ? groups : [])
+        await syncSystemTriggers(monitoring || !NativeLocationAccess.allowed ? [] : groups, alerts: prepared)
+    }
+    private func circle(_ place: NativePlace, id: String) -> CLCircularRegion {
+        let region = CLCircularRegion(center: CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude), radius: min(place.radius, manager.maximumRegionMonitoringDistance), identifier: id)
+        region.notifyOnEntry = false; region.notifyOnExit = false
+        return region
+    }
+    private static func same(_ a: CLCircularRegion, _ b: CLCircularRegion) -> Bool {
+        abs(a.center.latitude - b.center.latitude) < 0.000001 && abs(a.center.longitude - b.center.longitude) < 0.000001
+            && abs(a.radius - b.radius) < 0.5 && a.notifyOnEntry == b.notifyOnEntry && a.notifyOnExit == b.notifyOnExit
+    }
+    private func syncRegions(_ groups: [NativeLocationReminder.Group]) {
+        var wanted: [String: CLCircularRegion] = [:]
+        for group in groups {
+            let id = "sl-place-" + group.place.id
+            let region = wanted[id] ?? circle(group.place, id: id)
+            if group.trigger == "leave" { region.notifyOnExit = true } else { region.notifyOnEntry = true }
+            wanted[id] = region
+        }
+        for case let current as CLCircularRegion in manager.monitoredRegions where current.identifier.hasPrefix("sl-place-") {
+            if let next = wanted[current.identifier], Self.same(current, next) { wanted[current.identifier] = nil }
+            else { manager.stopMonitoring(for: current) }
+        }
+        for region in wanted.values { manager.startMonitoring(for: region) }
+        monitored = Set(groups.map(\.place.id)).count
+    }
+    private func syncSystemTriggers(_ groups: [NativeLocationReminder.Group], alerts: [String: NativeGeofenceAlert]) async {
+        let center = UNUserNotificationCenter.current()
+        let existing = await center.pendingNotificationRequests().filter { $0.identifier.hasPrefix("sl-task-location-") }
+        var keep = Set<String>()
+        for group in groups {
+            let key = group.place.id + "-" + group.trigger, id = "sl-task-location-" + key
+            guard let alert = alerts[key] else { continue }
+            keep.insert(id)
+            let region = circle(group.place, id: "sl-place-" + key)
+            region.notifyOnEntry = group.trigger == "arrive"; region.notifyOnExit = group.trigger == "leave"
+            if let old = existing.first(where: { $0.identifier == id }), let oldRegion = (old.trigger as? UNLocationNotificationTrigger)?.region as? CLCircularRegion,
+               Self.same(oldRegion, region), old.content.title == alert.title, old.content.body == alert.body, (old.content.sound != nil) == alert.sound { continue }
+            // Repeats while the tasks stay pending: every arrival (or departure) warns.
+            try? await center.add(UNNotificationRequest(identifier: id, content: alert.content, trigger: UNLocationNotificationTrigger(region: region, repeats: true)))
+        }
+        let stale = existing.map(\.identifier).filter { !keep.contains($0) }
+        if !stale.isEmpty { center.removePendingNotificationRequests(withIdentifiers: stale) }
+    }
+    // A crossing reported by iOS, or a test from Configurações → Locais. The
+    // test goes through the same path and arrives 5 seconds later, so the
+    // iPhone can be locked to see it as a real alert.
+    @discardableResult
+    func fire(placeID: String, trigger: String, placeName: String? = nil, simulated: Bool = false) async -> String {
+        let key = placeID + "-" + trigger
+        let alert = alerts[key]
+        let name = placeName ?? alert?.place ?? "local salvo"
+        let event = (trigger == "leave" ? "Saiu de " : "Chegou em ") + name + (simulated ? " (teste)" : "")
+        var last = UserDefaults.standard.dictionary(forKey: Self.lastKey) as? [String: Double] ?? [:]
+        let now = Date().timeIntervalSince1970
+        // GPS jitter at the edge can report the same crossing twice in a row.
+        if !simulated, now - (last[key] ?? 0) < 180 { note(event + " · repetido em menos de 3 min, ignorado"); return event }
+        last[key] = now; UserDefaults.standard.set(last, forKey: Self.lastKey)
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        guard UserDefaults.standard.bool(forKey: "nativeLocalReminders"), [.authorized, .provisional, .ephemeral].contains(settings.authorizationStatus) else {
+            let result = event + " · notificações do SaldoLeve desativadas"; note(result); return result
+        }
+        let content: NativeGeofenceAlert
+        if let alert { content = alert }
+        else if simulated { content = NativeGeofenceAlert(place: name, title: (trigger == "leave" ? "Ao sair de " : "Ao chegar em ") + name, body: "Teste: nenhuma tarefa pendente usa este aviso agora.", taskID: "", sound: true) }
+        else { let result = event + " · nenhuma tarefa pendente"; note(result); return result }
+        do {
+            try await center.add(UNNotificationRequest(identifier: "sl-location-event-" + key + (simulated ? "-test" : ""), content: content.content,
+                                                       trigger: simulated ? UNTimeIntervalNotificationTrigger(timeInterval: 5, repeats: false) : nil))
+            let result = event + " · aviso: " + content.body; note(result); return result
+        } catch { let result = event + " · falha ao avisar: " + error.localizedDescription; note(result); return result }
+    }
+    private func note(_ text: String) {
+        let stamp = Date().formatted(.dateTime.day(.twoDigits).month(.twoDigits).hour().minute().locale(Locale(identifier: "pt_BR")))
+        log = Array(([stamp + " · " + text] + log).prefix(30))
+        UserDefaults.standard.set(log, forKey: Self.logKey)
+    }
+    func clearLog() { log = []; UserDefaults.standard.removeObject(forKey: Self.logKey) }
+    private func handle(_ identifier: String, trigger: String) {
+        guard identifier.hasPrefix("sl-place-") else { return }
+        let placeID = String(identifier.dropFirst("sl-place-".count))
+        // iOS gives a few seconds in the background; ask for the time to post the alert.
+        let background = UIApplication.shared.beginBackgroundTask(expirationHandler: nil)
+        Task { await fire(placeID: placeID, trigger: trigger); if background != .invalid { UIApplication.shared.endBackgroundTask(background) } }
+    }
+    nonisolated func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
+        let id = region.identifier
+        Task { @MainActor in self.handle(id, trigger: "arrive") }
+    }
+    nonisolated func locationManager(_ manager: CLLocationManager, didExitRegion region: CLRegion) {
+        let id = region.identifier
+        Task { @MainActor in self.handle(id, trigger: "leave") }
+    }
+    nonisolated func locationManager(_ manager: CLLocationManager, monitoringDidFailFor region: CLRegion?, withError error: Error) {
+        let placeID = String((region?.identifier ?? "").dropFirst("sl-place-".count)), reason = error.localizedDescription
+        Task { @MainActor in
+            let alerts = self.alerts
+            self.note("Falha ao monitorar " + (alerts[placeID + "-arrive"]?.place ?? alerts[placeID + "-leave"]?.place ?? "local") + ": " + reason)
+        }
+    }
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        // "Sempre" granted or removed: switch between monitoring and the fallback.
+        Task { @MainActor in NotificationCenter.default.post(name: .nativeLocationAuthorizationChanged, object: nil) }
+    }
+}
+
+extension Notification.Name { static let nativeLocationAuthorizationChanged = Notification.Name("nativeLocationAuthorizationChanged") }
+
 @MainActor final class NativeLocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var status: CLAuthorizationStatus
+    @Published var precise: Bool
     @Published var location: CLLocation?
     @Published var locating = false
     @Published var issue: String?
@@ -224,11 +389,19 @@ enum NativeLocationAccess {
     override init() {
         let manager = CLLocationManager()
         self.manager = manager
-        status = manager.authorizationStatus
+        status = manager.authorizationStatus; precise = manager.accuracyAuthorization == .fullAccuracy
         super.init(); manager.delegate = self; manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
     }
     var allowed: Bool { [.authorizedWhenInUse, .authorizedAlways].contains(status) }
+    var always: Bool { status == .authorizedAlways }
     func request() { manager.requestWhenInUseAuthorization() }
+    // iOS shows the "Alterar para Sempre" prompt only once; afterwards only Ajustes can change it.
+    func requestAlways() {
+        let key = "nativeLocationAlwaysAsked"
+        if status == .notDetermined || (status == .authorizedWhenInUse && !UserDefaults.standard.bool(forKey: key)) {
+            UserDefaults.standard.set(true, forKey: key); manager.requestAlwaysAuthorization()
+        } else if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+    }
     func locate() {
         issue = nil
         if status == .notDetermined { request(); return }
@@ -236,8 +409,8 @@ enum NativeLocationAccess {
         locating = true; manager.requestLocation()
     }
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        let status = manager.authorizationStatus
-        Task { @MainActor in self.status = status }
+        let status = manager.authorizationStatus, precise = manager.accuracyAuthorization == .fullAccuracy
+        Task { @MainActor in self.status = status; self.precise = precise }
     }
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         let last = locations.last

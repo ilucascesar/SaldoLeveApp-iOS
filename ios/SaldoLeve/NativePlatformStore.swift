@@ -123,6 +123,12 @@ import CryptoKit
         var config = snapshot.config; config["places"] = .array(places)
         try await saveConfig(config, revision: snapshot.revision)
     }
+    // Adds, replaces or removes one place; the refresh after saving updates the alerts.
+    func savePlace(_ place: NativePlace, remove: Bool = false) async throws {
+        var list = NativePlace.list(snapshot.config).filter { $0.id != place.id }.map { JSONValue.object($0.fields) }
+        if !remove { list.append(.object(place.fields)) }
+        try await savePlaces(list)
+    }
     // Automatic contacts sync: reads the iPhone contacts at most every 15
     // minutes and sends them when something changed (or once a day). Only
     // name and date are sent; the server keeps everything else.

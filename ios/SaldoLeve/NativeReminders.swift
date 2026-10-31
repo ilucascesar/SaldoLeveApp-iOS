@@ -9,9 +9,16 @@ final class NativeReminders: NSObject, UNUserNotificationCenterDelegate {
     private let center = UNUserNotificationCenter.current()
     private var expenseRecords: [JSONObject] = []
     private var birthdays: [NativeBirthday]?
-    private var places: [NativePlace] = []
+    // nil until the account's places arrive: the saved regions stay as they are
+    // instead of being dropped and registered again on every launch.
+    private var places: [NativePlace]?
     private var lastSnapshot = NativeSnapshot()
-    override init() { super.init(); center.delegate = self }
+    override init() {
+        super.init(); center.delegate = self
+        NotificationCenter.default.addObserver(forName: .nativeLocationAuthorizationChanged, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in guard let self, self.places != nil else { return }; self.update(self.lastSnapshot) }
+        }
+    }
     func enable(_ snapshot: NativeSnapshot) async throws -> Bool {
         let granted = try await center.requestAuthorization(options: [.alert, .sound, .badge])
         UserDefaults.standard.set(granted, forKey: "nativeLocalReminders")
@@ -55,16 +62,19 @@ final class NativeReminders: NSObject, UNUserNotificationCenterDelegate {
             guard !Task.isCancelled else { return }
             let preserveBirthdays = self.birthdays == nil && UserDefaults.standard.bool(forKey: "nativeLocalReminders")
             let preservedBirthdayCount = preserveBirthdays ? existing.filter { $0.identifier.hasPrefix("sl-task-birthday-") }.count : 0
-            center.removePendingNotificationRequests(withIdentifiers: existing.filter { $0.identifier.hasPrefix("sl-task-") && !(preserveBirthdays && $0.identifier.hasPrefix("sl-task-birthday-")) }.map(\.identifier))
+            // Location alerts are compared and kept (NativeGeofence), not rebuilt here.
+            center.removePendingNotificationRequests(withIdentifiers: existing.filter { $0.identifier.hasPrefix("sl-task-") && !$0.identifier.hasPrefix("sl-task-location-") && !(preserveBirthdays && $0.identifier.hasPrefix("sl-task-birthday-")) }.map(\.identifier))
             let preferences = NativeNotificationPreferences.read()
             if !preferences.badge || !UserDefaults.standard.bool(forKey: "nativeLocalReminders") { UIApplication.shared.applicationIconBadgeNumber = 0 }
-            guard UserDefaults.standard.bool(forKey: "nativeLocalReminders") else { return }
             let settings = await center.notificationSettings()
-            guard [.authorized, .provisional, .ephemeral].contains(settings.authorizationStatus), !Task.isCancelled else { return }
+            let authorized = UserDefaults.standard.bool(forKey: "nativeLocalReminders") && [.authorized, .provisional, .ephemeral].contains(settings.authorizationStatus)
+            // Arrive/leave alerts do not depend on a date: any pending task with a place counts.
+            let locations = authorized && preferences.tasks ? NativeLocationReminder.groups(snapshot, places: self.places ?? []) : []
+            if self.places != nil, !Task.isCancelled { await NativeGeofence.shared.apply(locations, preferences: preferences) }
+            guard authorized, !Task.isCancelled else { return }
             let now = Date()
             let expenses = self.expenseRecords, birthdayRecords = self.birthdays ?? []
-            // Location alerts share the iOS limit of 64 pending requests.
-            let locations = NativeLocationAccess.allowed && preferences.tasks ? NativeLocationReminder.groups(snapshot, places: self.places) : []
+            // With only "Durante o uso", location alerts share the iOS limit of 64 pending requests.
             let pause = NativeAlertPause.until(now: now)
             let computation = await Task.detached(priority: .utility) {
                 let dueDates = snapshot.items.filter { $0.isActive && !$0.paused }.compactMap(\.nextDate).sorted()
@@ -75,17 +85,6 @@ final class NativeReminders: NSObject, UNUserNotificationCenterDelegate {
                 return (dueDates, alarms)
             }.value
             guard !Task.isCancelled else { return }
-            for group in locations {
-                guard !Task.isCancelled else { return }
-                let content = UNMutableNotificationContent()
-                let verb = group.trigger == "leave" ? "Ao sair de " : "Ao chegar em "
-                content.title = preferences.showDetails ? verb + group.place.name : "SaldoLeve"
-                content.body = preferences.showDetails ? (group.titles.count == 1 ? group.titles[0] : "\(group.titles.count) tarefas: " + group.titles.prefix(4).joined(separator: ", ") + (group.titles.count > 4 ? "…" : "")) : "Você tem um lembrete por local. Abra o app para consultar."
-                content.sound = preferences.sound ? .default : nil
-                content.threadIdentifier = "sl-task-location"
-                content.userInfo = ["taskID": group.taskIDs.count == 1 ? group.taskIDs[0] : ""]
-                try? await center.add(UNNotificationRequest(identifier: "sl-task-location-\(group.place.id)-\(group.trigger)", content: content, trigger: NativeLocationAccess.trigger(group)))
-            }
             if preferences.badge { UIApplication.shared.applicationIconBadgeNumber = computation.0.prefix { $0 <= now }.count }
             for reminder in computation.1 {
                 guard !Task.isCancelled else { return }
@@ -116,7 +115,7 @@ final class NativeReminders: NSObject, UNUserNotificationCenterDelegate {
     }
     func clear(disable: Bool = true) {
         if disable { UserDefaults.standard.set(false, forKey: "nativeLocalReminders") }
-        update(NativeSnapshot(), expenseRecords: [], birthdays: [])
+        update(NativeSnapshot(), expenseRecords: [], birthdays: [], places: [])
         center.removeAllDeliveredNotifications()
         UIApplication.shared.applicationIconBadgeNumber = 0
     }
