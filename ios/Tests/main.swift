@@ -281,6 +281,9 @@ check(halfHour.title == "Pagar a luz" && halfHour.due == NativeDate.parse("2027-
 let tomorrowNine = NativeSpokenReminder.parse("ligar para o João amanhã às 9", now: spokenNow, calendar: spokenCalendar)
 check(tomorrowNine.title == "Ligar para o João" && tomorrowNine.due == NativeDate.parse("2027-01-11T12:00:00Z"), "Siri: 'amanhã às 9' uses tomorrow at 09:00")
 check(NativeSpokenReminder.parse("revisar contrato", now: spokenNow, calendar: spokenCalendar).due == nil, "Siri: without a time the task has no date")
+check(NativeSpokenReminder.parse("criar tarefa comprar pão", now: spokenNow, calendar: spokenCalendar).title == "Comprar pão", "Siri: 'criar tarefa' is not part of the title")
+check(NativeSpokenReminder.parse("adicionar lembrete de pagar a luz", now: spokenNow, calendar: spokenCalendar).title == "Pagar a luz", "Siri: 'adicionar lembrete' is not part of the title")
+check(NativeSpokenReminder.parse("de tirar o lixo daqui 2 horas", now: spokenNow, calendar: spokenCalendar).title == "Tirar o lixo", "Siri: the answer to 'me lembre' drops the leading 'de'")
 print("Siri phrases: relative hours, half hours, tomorrow at a time and plain titles passed.")
 
 let pauseEnd = NativeDate.parse("2027-01-10T12:00:00Z")!
