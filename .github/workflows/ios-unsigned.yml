@@ -77,7 +77,7 @@ jobs:
         if: ${{ inputs.run_ui_tests || inputs.full_ui_tests || contains(github.event.head_commit.message, '[verify-ui]') }}
         timeout-minutes: 25
         env:
-          UI_TEST_FILTER: ${{ inputs.full_ui_tests && 'all' || 'testDLayoutClearlyControlsMonthlyPendingSection testETaskDrawerKeepsOnlyThreeFixedScopes' }}
+          UI_TEST_FILTER: ${{ inputs.full_ui_tests && 'all' || 'testAWidgetSettingsAndHomeScreenMenu testBSettingsCenterGroupsAndSearch testBirthdayContactsRequireReviewBeforeImport testInstallmentShowsBothAmountsAndUpdatesDiscount' }}
           PREVIEW_SCREENS: list
         run: bash ios/scripts/preview-simulator.sh
 
