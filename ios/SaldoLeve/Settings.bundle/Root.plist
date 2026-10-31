@@ -4,7 +4,7 @@
   <key>StringsTable</key><string>Root</string>
   <key>PreferenceSpecifiers</key><array>
     <dict><key>Type</key><string>PSGroupSpecifier</string><key>Title</key><string>SaldoLeve</string><key>FooterText</key><string>Para configurar notificações, silêncio, contador no ícone e widgets, abra SaldoLeve → Configurações. As permissões de notificações são controladas pelo iOS.</string></dict>
-    <dict><key>Type</key><string>PSTitleValueSpecifier</string><key>Title</key><string>Versão</string><key>Key</key><string>nativeAppVersion</string><key>DefaultValue</key><string>2.7.1</string></dict>
+    <dict><key>Type</key><string>PSTitleValueSpecifier</string><key>Title</key><string>Versão</string><key>Key</key><string>nativeAppVersion</string><key>DefaultValue</key><string>2.7.2</string></dict>
     <dict><key>Type</key><string>PSTitleValueSpecifier</string><key>Title</key><string>Sistema</string><key>Key</key><string>nativeAppName</string><key>DefaultValue</key><string>SaldoLeveApp</string></dict>
   </array>
 </dict></plist>
