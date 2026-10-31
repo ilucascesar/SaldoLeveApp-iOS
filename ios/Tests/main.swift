@@ -256,7 +256,65 @@ newYearBirthday.fields.merge(["id": .string("1"), "name": .string("Virada"), "da
 let yearEnd = NativeDate.parse("2026-12-30T12:00:00Z")!
 check(newYearBirthday.calendar.component(.year, from: newYearBirthday.nextDate(now: yearEnd)!) == 2027, "Next birthday crosses calendar years")
 let birthdayPlans = NativeBirthdayPlan.build([newYearBirthday], now: yearEnd, preferences: NativeNotificationPreferences())
-check(birthdayPlans.count == 2 && birthdayPlans.allSatisfy { $0.date > yearEnd }, "Each reminder offset gets the next future occurrence, including across years")
+check(birthdayPlans.filter { !$0.id.contains("-repeat-") }.count == 2 && birthdayPlans.allSatisfy { $0.date > yearEnd }, "Each reminder offset gets the next future occurrence, including across years")
+check(birthdayPlans.contains { $0.id.contains("-repeat-") }, "A pending birthday keeps reminding after its time, like an overdue task")
+let birthdayNow = NativeDate.parse("2027-01-02T15:00:00Z")!
+check(newYearBirthday.isLate(now: birthdayNow) && !newYearBirthday.isCompleted(now: birthdayNow), "A birthday from yesterday stays open until marked as done")
+let doneBirthday = newYearBirthday.settingCompleted(true, now: birthdayNow)
+check(doneBirthday.completedYears == [2027] && doneBirthday.isCompleted(now: birthdayNow) && doneBirthday.currentOccurrence(now: birthdayNow) == newYearBirthday.currentOccurrence(now: birthdayNow), "Marking a birthday as done keeps it in the same place of the list")
+check(!NativeBirthdayPlan.build([doneBirthday], now: birthdayNow, preferences: NativeNotificationPreferences()).contains { $0.id.contains("-repeat-") }, "A completed birthday stops its persistent alerts")
+check(!doneBirthday.settingCompleted(false, now: birthdayNow).isCompleted(now: birthdayNow), "A completed birthday can be reopened")
+var quietBirthday = newYearBirthday; quietBirthday.fields["persistent"] = .bool(false)
+check(!NativeBirthdayPlan.build([quietBirthday], now: yearEnd, preferences: NativeNotificationPreferences()).contains { $0.id.contains("-repeat-") }, "Persistent birthday alerts can be turned off per person")
+check(!newYearBirthday.isLate(now: NativeDate.parse("2027-01-05T15:00:00Z")!), "After two days the checkbox moves to the next year")
 let platformDefaults = try JSONDecoder().decode(NativePlatformSnapshot.self, from: Data("{}".utf8))
 check(platformDefaults.birthdays.isEmpty && platformDefaults.revision == 0, "Optional platform fields decode safely")
-print("Birthdays: optional age, leap policies, next year, future alerts and decoding passed.")
+print("Birthdays: optional age, leap policies, next year, future alerts, completion, persistence and decoding passed.")
+
+var spokenCalendar = Calendar(identifier: .gregorian); spokenCalendar.timeZone = TimeZone(identifier: "America/Sao_Paulo")!
+let spokenNow = NativeDate.parse("2027-01-10T15:07:00Z")!
+let inTwoHours = NativeSpokenReminder.parse("me avise de tirar o lixo daqui 2 horas", now: spokenNow, calendar: spokenCalendar)
+check(inTwoHours.title == "Tirar o lixo" && inTwoHours.due == NativeDate.parse("2027-01-10T17:15:00Z"), "Siri: 'daqui 2 horas' creates the task two hours later, on a quarter hour")
+check(NativeSpokenReminder.parse("comprar pão daqui 2h", now: spokenNow, calendar: spokenCalendar).due == NativeDate.parse("2027-01-10T17:15:00Z"), "Siri: '2h' is understood")
+let halfHour = NativeSpokenReminder.parse("pagar a luz em meia hora", now: spokenNow, calendar: spokenCalendar)
+check(halfHour.title == "Pagar a luz" && halfHour.due == NativeDate.parse("2027-01-10T15:45:00Z"), "Siri: 'meia hora' is understood")
+let tomorrowNine = NativeSpokenReminder.parse("ligar para o João amanhã às 9", now: spokenNow, calendar: spokenCalendar)
+check(tomorrowNine.title == "Ligar para o João" && tomorrowNine.due == NativeDate.parse("2027-01-11T12:00:00Z"), "Siri: 'amanhã às 9' uses tomorrow at 09:00")
+check(NativeSpokenReminder.parse("revisar contrato", now: spokenNow, calendar: spokenCalendar).due == nil, "Siri: without a time the task has no date")
+print("Siri phrases: relative hours, half hours, tomorrow at a time and plain titles passed.")
+
+let pauseEnd = NativeDate.parse("2027-01-10T12:00:00Z")!
+let held = NativeAlertPause.filter([
+    PlannedReminder(id: "a", taskID: "1", title: "", body: "", date: NativeDate.parse("2027-01-10T10:00:00Z")!),
+    PlannedReminder(id: "b", taskID: "1", title: "", body: "", date: NativeDate.parse("2027-01-10T11:00:00Z")!),
+    PlannedReminder(id: "c", taskID: "2", title: "", body: "", date: NativeDate.parse("2027-01-10T10:30:00Z")!),
+    PlannedReminder(id: "d", taskID: "2", title: "", body: "", date: NativeDate.parse("2027-01-10T13:00:00Z")!)], until: pauseEnd)
+check(held.map(\.id) == ["a", "d"] && held[0].date == pauseEnd, "Paused alerts are held: one alert per item when the pause ends, later alerts kept")
+check(NativeAlertPause.filter(held, until: nil) == held, "Without a pause nothing changes")
+print("Alert pause: held alerts, one reminder at the end and later alerts passed.")
+
+var ledger = NativeLayoutPreferences(); ledger.applyTaskDetailPreset("ledger")
+check(ledger.taskDetailLayout == "ledger" && ledger.taskDetailNumbers && ledger.taskDetailDensity == "compact" && ledger.taskDetailGrouping == "none", "The ledger style numbers subtasks in compact columns")
+var badDensity = NativeLayoutPreferences(); badDensity.taskDetailDensity = "huge"; badDensity.normalize()
+check(badDensity.taskDetailDensity == "regular", "Unknown task detail density falls back to regular")
+let pendingCheck = NativeCheck(["id": .string("x"), "text": .string("Parcela"), "done": .bool(false), "remindAt": .string("2027-01-09T12:00:00Z")])
+check(NativeCheckState.of(pendingCheck, now: spokenNow, calendar: spokenCalendar) == "overdue", "A past subtask is overdue")
+check(NativeCheckState.next([pendingCheck, NativeCheck(["id": .string("y"), "text": .string("Outra"), "done": .bool(true)])]) == "x", "The next pending subtask is highlighted")
+print("Opened task styles: ledger preset, density and subtask situations passed.")
+
+let oldDisplay = try JSONDecoder().decode(SaldoWidgetDisplay.self, from: Data(#"{"scope":"all","count":5}"#.utf8))
+check(oldDisplay.count == 5 && !oldDisplay.showHeader && oldDisplay.accent == "blue" && oldDisplay.showFooter, "Older widget settings decode with the new appearance defaults")
+var overdueFirst = SaldoWidgetDisplay(); overdueFirst.overdueFirst = true
+check(overdueFirst.states == ["overdue", "today", "upcoming"], "Atrasadas can come before Hoje")
+check(SaldoWidgetLayout.capacity(height: 330, rowHeight: 19, showSubtotals: false, groupCount: 2, requested: 30, header: false) > SaldoWidgetLayout.capacity(height: 330, rowHeight: 19, showSubtotals: false, groupCount: 2, requested: 30), "Without the title the widget fits more rows")
+print("Widget appearance: tolerant decoding, group order and title space passed.")
+
+var market = sample("31", nil); market.fields["locationReminder"] = .object(["placeId": .string("p1"), "trigger": .string("arrive")])
+var milk = sample("32", nil); milk.fields["locationReminder"] = .object(["placeId": .string("p1"), "trigger": .string("arrive")])
+var door = sample("33", nil); door.fields["locationReminder"] = .object(["placeId": .string("p1"), "trigger": .string("leave")])
+var unknownPlace = sample("34", nil); unknownPlace.fields["locationReminder"] = .object(["placeId": .string("missing"), "trigger": .string("arrive")])
+var placeSnapshot = NativeSnapshot(); placeSnapshot.items = [market, milk, door, unknownPlace]
+let placeGroups = NativeLocationReminder.groups(placeSnapshot, places: [NativePlace(["id": .string("p1"), "name": .string("Mercado"), "latitude": .number(-23.55), "longitude": .number(-46.63), "radius": .number(50)])])
+check(placeGroups.count == 2 && placeGroups[0].taskIDs == ["31", "32"] && placeGroups[0].trigger == "arrive" && placeGroups[0].place.radius == 100, "Tasks for the same place and direction share one grouped alert")
+check(NativePlace.list(["places": .array([.object(["id": .string("z"), "name": .string("Sem coordenadas")])])]).isEmpty, "Places without coordinates are ignored")
+print("Location reminders: grouped alerts, unknown places and invalid coordinates passed.")
