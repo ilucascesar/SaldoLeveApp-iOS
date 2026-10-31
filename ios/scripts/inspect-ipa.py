@@ -54,7 +54,9 @@ with zipfile.ZipFile(target) as archive:
         assert b'--preview-birthdays' not in archive.read(app + 'SaldoLeve'), 'Birthday fixtures in Release'
     if tuple(map(int, main['CFBundleShortVersionString'].split('.'))) >= (2, 7, 0):
         assert main.get('NSLocationWhenInUseUsageDescription'), 'Location purpose is required'
-        assert not main.get('NSLocationAlwaysAndWhenInUseUsageDescription'), 'Only "While Using" location is requested'
+        # 2.7.0-2.7.1 asked only "While Using"; 2.7.2 asks "Always" for place monitoring (checked below).
+        if tuple(map(int, main['CFBundleShortVersionString'].split('.'))) < (2, 7, 2):
+            assert not main.get('NSLocationAlwaysAndWhenInUseUsageDescription'), 'Only "While Using" location is requested'
         shortcuts = [item.get('UIApplicationShortcutItemType') for item in main.get('UIApplicationShortcutItems', [])]
         assert len(shortcuts) == 3 and all(shortcuts), 'Home Screen quick actions missing'
         assert any(name.startswith(app + 'Metadata.appintents/') for name in archive.namelist()), 'Siri App Intents metadata missing'
