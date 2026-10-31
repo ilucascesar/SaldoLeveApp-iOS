@@ -443,7 +443,10 @@ enum NativeSpokenReminder {
             if let value = due, value <= now { due = NativeDate.quarter(now.addingTimeInterval(3600)) }
         }
         var title = text.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
-        for prefix in ["me avise de ", "me avisa de ", "me lembre de ", "me lembra de ", "lembrar de ", "avisar de ", "me avise para ", "me lembre para "] where title.lowercased().hasPrefix(prefix) {
+        // Siri may pass the start of "criar tarefa…", "adicionar lembrete…" or
+        // "me lembre de…" along with the dictated text.
+        for prefix in ["me avise de ", "me avisa de ", "me lembre de ", "me lembra de ", "lembrar de ", "avisar de ", "me avise para ", "me lembre para ", "me lembre que ", "me lembre ",
+                       "criar tarefa para ", "criar tarefa de ", "criar tarefa ", "adicionar lembrete para ", "adicionar lembrete de ", "adicionar lembrete ", "lembrete de ", "tarefa de ", "de ", "que ", "para "] where title.lowercased().hasPrefix(prefix) {
             title = String(title.dropFirst(prefix.count)); break
         }
         if let first = title.first { title = first.uppercased() + title.dropFirst() }

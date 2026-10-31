@@ -1,7 +1,8 @@
 import SwiftUI
+import AppIntents
 
 enum NativeSettingsPage: String, CaseIterable, Identifiable, Hashable {
-    case appearance, layout, notifications, birthdays, places, widgets, menus, features, account, about
+    case appearance, layout, notifications, birthdays, places, widgets, siri, menus, features, account, about
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -11,6 +12,7 @@ enum NativeSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .birthdays: return "Padrões de aniversariantes"
         case .places: return "Locais"
         case .widgets: return "Widgets"
+        case .siri: return "Siri e Atalhos"
         case .menus: return "Menus e textos"
         case .features: return "Recursos e sugestões"
         case .account: return "Conta e segurança"
@@ -25,6 +27,7 @@ enum NativeSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .birthdays: return "gift"
         case .places: return "mappin.and.ellipse"
         case .widgets: return "square.grid.2x2"
+        case .siri: return "mic"
         case .menus: return "sidebar.left"
         case .features: return "sparkles"
         case .account: return "person.crop.circle"
@@ -39,6 +42,7 @@ enum NativeSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .birthdays: return "aniversário antecipação dias horário grupo contatos persistentes sincronizar"
         case .places: return "local localização mercado casa chegar sair geofence lembrete por local"
         case .widgets: return "tamanhos vertical maior lista conteúdo conexão código"
+        case .siri: return "siri voz falar escrever ditar atalhos criar tarefa adicionar lembrete me lembre"
         case .menus: return "ordem títulos navegação personalizar"
         case .features: return "busca erros valores organização recursos"
         case .account: return "face id código biometria aparelhos acesso login sincronizar sair"
@@ -59,7 +63,7 @@ struct NativeSettingsView: View {
     private let groups: [(String, [NativeSettingsPage])] = [
         ("Personalização", [.appearance, .layout]),
         ("Avisos e widgets", [.notifications, .birthdays, .places, .widgets]),
-        ("Preferências do sistema", [.menus, .features]),
+        ("Preferências do sistema", [.siri, .menus, .features]),
         ("Sua conta", [.account, .about])
     ]
     private func matches(_ page: NativeSettingsPage) -> Bool {
@@ -92,6 +96,7 @@ struct NativeSettingsView: View {
                     case .birthdays: NativeRemoteSettings(platform: store.platform, page: .birthdays, embedded: true)
                     case .places: NativePlacesSettings(store: store)
                     case .widgets: NativeWidgetSettings(store: store)
+                    case .siri: NativeSiriSettings()
                     case .menus: NativeRemoteSettings(platform: store.platform, page: .menus, embedded: true)
                     case .features: NativeRemoteSettings(platform: store.platform, page: .features, embedded: true)
                     case .account: NativeAccountSettings(store: store)
@@ -139,6 +144,29 @@ private struct NativeAccountSettings: View {
             .confirmationDialog("Sair da conta?", isPresented: $logout, titleVisibility: .visible) {
                 Button("Sair e limpar dados deste iPhone", role: .destructive) { Task { await store.logout() } }
             } message: { Text("A cópia de consulta e os lembretes deste aplicativo serão removidos. Os dados confirmados continuam no servidor.") }
+    }
+}
+
+private struct NativeSiriSettings: View {
+    @AppStorage(NativeSiriPreferences.storageKey) private var input = "speak"
+    private let phrases = ["criar tarefa no SaldoLeve", "adicionar lembrete no SaldoLeve", "me lembre no SaldoLeve"]
+    var body: some View {
+        Form {
+            Section {
+                Picker("Responder à Siri", selection: $input) { Text("Falando").tag("speak"); Text("Escrevendo no app").tag("type") }
+                    .accessibilityIdentifier("siri-input")
+            } footer: {
+                Text(input == "type" ? "A Siri abre uma nova tarefa no SaldoLeve para você escrever e salvar." : "A Siri pergunta “O que devo lembrar, e quando?” e você responde falando, por exemplo: “pagar o boleto daqui 2 horas” ou “ligar para o João amanhã às 9”. A tarefa só é confirmada depois que o servidor salvar.")
+            }
+            Section {
+                ForEach(phrases, id: \.self) { phrase in Label("E aí Siri, " + phrase, systemImage: "waveform") }
+                if #available(iOS 17.0, *) { ShortcutsLink() }
+            } header: { Text("Diga à Siri") } footer: { Text("O iOS exige o nome do app nessas frases. Também funcionam pelo app Atalhos e digitando para a Siri.") }
+            Section {
+                Text("1. Toque em Criar atalho pessoal.\n2. Adicione a ação “Criar tarefa no SaldoLeve”.\n3. Dê ao atalho o nome “Criar tarefa” (repita com “Adicionar lembrete” ou “Me lembre”, se quiser).\n4. Diga “E aí Siri, criar tarefa” e responda o que lembrar.").font(.subheadline)
+                Link(destination: URL(string: "shortcuts://create-shortcut")!) { Label("Criar atalho pessoal", systemImage: "plus.square.on.square") }
+            } header: { Text("Sem dizer “SaldoLeve”") } footer: { Text("“Me lembre” sozinho pode ser atendido pelo app Lembretes da Apple; “Criar tarefa” costuma ser mais confiável.") }
+        }.navigationTitle("Siri e Atalhos").navigationBarTitleDisplayMode(.inline)
     }
 }
 

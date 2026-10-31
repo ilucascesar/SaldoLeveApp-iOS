@@ -45,9 +45,21 @@ struct NativeCreateTaskIntent: AppIntent {
     static var description = IntentDescription("Cria uma tarefa na sua conta com aviso no horário dito, por exemplo: tirar o lixo daqui a 2 horas.")
     static var authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     static var openAppWhenRun = false
-    @Parameter(title: "Tarefa", requestValueDialog: IntentDialog("O que devo lembrar, e quando?")) var text: String
+    @Parameter(title: "Tarefa") var text: String?
 
     @MainActor func perform() async throws -> some IntentResult & ProvidesDialog {
+        // Configurações → Siri e Atalhos: answer by voice (default) or type the
+        // task in the app, which opens a new draft.
+        guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+            if NativeSiriPreferences.typing {
+                if #available(iOS 17.0, *) {
+                    throw needsToContinueInForegroundError(IntentDialog("Abra o SaldoLeve para escrever a tarefa.")) {
+                        NativeQuickActions.shared.pending = NativeQuickActions.newTask
+                    }
+                }
+            }
+            throw $text.needsValueError(IntentDialog("O que devo lembrar, e quando?"))
+        }
         let parsed = NativeSpokenReminder.parse(text)
         guard !parsed.title.isEmpty else { return .result(dialog: "Não entendi a tarefa. Tente de novo dizendo o que lembrar.") }
         let store = NativeStore.shared
@@ -70,15 +82,32 @@ struct NativeCreateTaskIntent: AppIntent {
 }
 
 @available(iOS 17.0, *)
+extension NativeCreateTaskIntent: ForegroundContinuableIntent {}
+
+// Answering Siri: by voice (default) or typing in the app.
+enum NativeSiriPreferences {
+    static let storageKey = "nativeSiriInput"
+    static var typing: Bool { UserDefaults.standard.string(forKey: storageKey) == "type" }
+}
+
+// iOS requires the app name in App Shortcut phrases. To say only
+// "criar tarefa", the user names a personal shortcut that runs this action
+// (Configurações → Siri e Atalhos explains how).
+@available(iOS 17.0, *)
 struct NativeAppShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(intent: NativeCreateTaskIntent(), phrases: [
-            "Me lembre no \(.applicationName)",
-            "Me avise pelo \(.applicationName)",
             "Criar tarefa no \(.applicationName)",
+            "Adicionar lembrete no \(.applicationName)",
+            "Me lembre no \(.applicationName)",
+            "Me lembre pelo \(.applicationName)",
+            "Me avise pelo \(.applicationName)",
+            "Adicionar tarefa no \(.applicationName)",
             "Nova tarefa no \(.applicationName)",
-            "Lembrete no \(.applicationName)"
-        ], shortTitle: "Nova tarefa", systemImageName: "checklist")
+            "\(.applicationName) criar tarefa",
+            "\(.applicationName) adicionar lembrete",
+            "\(.applicationName) me lembre"
+        ], shortTitle: "Criar tarefa", systemImageName: "checklist")
     }
 }
 
