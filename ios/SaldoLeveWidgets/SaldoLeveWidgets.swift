@@ -112,46 +112,46 @@ struct SaldoWidgetView: View {
         if #available(iOS 27.0, *), family == .systemExtraLargePortrait { return true }
         return family == .systemLarge
     }
+    // Every tap opens the app's task list (Agenda); there are no per-item links.
+    static let openURL = URL(string: "saldoleve://tasks")!
+    private var portrait: Bool {
+        if #available(iOS 27.0, *), family == .systemExtraLargePortrait { return true }
+        return false
+    }
     var body: some View {
         Group {
-            if family == .accessoryCircular { Image(systemName: "checklist").font(.title2).accessibilityLabel("Abrir Meu dia") }
+            if family == .accessoryCircular { Image(systemName: "checklist").font(.title2).accessibilityLabel("Abrir Agenda") }
             else if family == .accessoryInline { Text("Hoje \(entry.feed?.taskCounts["today"] ?? 0) · Atrasadas \(entry.feed?.taskCounts["overdue"] ?? 0)") }
             else if family == .accessoryRectangular { lockScreen }
             else { GeometryReader { geometry in home(height: geometry.size.height) } }
-        }.containerBackground(for: .widget) { Color(uiColor: .systemBackground) }.widgetURL(URL(string: "saldoleve://focus")!).privacySensitive()
+        }.containerBackground(for: .widget) { Color(uiColor: .systemBackground) }.widgetURL(Self.openURL).privacySensitive()
     }
     private func home(height: CGFloat) -> some View {
         let grouped = display.groupByDate && expanded
         let groupCount = grouped ? (display.states + ["undated"]).filter { state in ordered.contains { $0.state == state } }.count : 0
-        let capacity = SaldoWidgetLayout.capacity(height: Double(height), rowHeight: Double(rowHeight), showSubtotals: display.showSubtotals, groupCount: groupCount, requested: display.count)
+        // The full-page portrait widget fills its whole height instead of
+        // stopping at the row limit chosen for the smaller sizes.
+        let capacity = SaldoWidgetLayout.capacity(height: Double(height), rowHeight: Double(rowHeight), showSubtotals: false, groupCount: groupCount, requested: portrait ? SaldoWidgetDisplay.maximumRows : display.count)
         let selected = SaldoWidgetSelection.items(ordered, limit: capacity, grouped: grouped, states: display.states, focus: display.scope == "focus")
         return VStack(alignment: .leading, spacing: 4) {
             HStack { Image(systemName: "checklist").foregroundStyle(accent); Text(title).font(.system(size: 13, weight: .semibold)).lineLimit(1); Spacer(minLength: 0); if expanded { Image(systemName: "arrow.up.left.and.arrow.down.right").font(.caption2).foregroundStyle(.secondary) } }.frame(height: 20)
             if let feed = entry.feed {
-                if display.showSubtotals { subtotals(feed) }
                 if selected.isEmpty { Spacer(minLength: 0); Label("Tudo em ordem", systemImage: "checkmark").font(.caption).foregroundStyle(.secondary); Spacer(minLength: 0) }
                 else if grouped {
                     ForEach(display.states + ["undated"], id: \.self) { state in
                         let items = selected.filter { $0.state == state }
                         if !items.isEmpty {
                             Text(label(state)).font(.system(size: 10, weight: .semibold)).foregroundStyle(state == "overdue" ? Color.red : .secondary).frame(height: 12)
-                            VStack(spacing: 0) { ForEach(items) { item in Link(destination: item.deepLink) { row(item) }.buttonStyle(.plain) } }
+                            VStack(spacing: 0) { ForEach(items) { item in row(item) } }
                         }
                     }
-                } else { VStack(spacing: 0) { ForEach(selected) { item in Link(destination: item.deepLink) { row(item) }.buttonStyle(.plain) } } }
+                } else { VStack(spacing: 0) { ForEach(selected) { item in row(item) } } }
                 Spacer(minLength: 0)
-                HStack(spacing: 3) { if entry.cached { Image(systemName: "wifi.slash") }; Text(updated(feed)).lineLimit(1); Spacer(minLength: 0); if family != .systemSmall { Link("Abrir lista", destination: URL(string: "saldoleve://focus")!).foregroundStyle(accent) } }.font(.system(size: 9)).foregroundStyle(.secondary).frame(height: 12)
+                HStack(spacing: 3) { if entry.cached { Image(systemName: "wifi.slash") }; Text(updated(feed)).lineLimit(1); Spacer(minLength: 0) }.font(.system(size: 9)).foregroundStyle(.secondary).frame(height: 12)
             } else {
                 Spacer(minLength: 0); Text(entry.error ?? "Conecte sua conta").font(.system(size: 12)).foregroundStyle(.secondary); Spacer(minLength: 0)
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-    private func subtotals(_ feed: SaldoWidgetFeed) -> some View {
-        HStack(spacing: 4) {
-            ForEach(display.states, id: \.self) { state in
-                VStack(alignment: .leading, spacing: 2) { Text(label(state)).font(.system(size: family == .systemSmall ? 8 : 10)).foregroundStyle(.secondary); Text("\(feed.taskCounts[state] ?? 0)").font(.system(size: 12, weight: .semibold)).foregroundStyle(state == "overdue" ? Color.red : accent) }.frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }.frame(height: 29)
     }
     private func label(_ state: String) -> String { ["today":"Hoje", "overdue":"Atrasadas", "upcoming":"Próximas", "undated":"Sem data"][state] ?? state }
     private func row(_ item: SaldoWidgetItem) -> some View {
@@ -192,7 +192,7 @@ struct SaldoLevePortraitWidget: Widget {
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: kind, intent: SaldoWidgetConfiguration.self, provider: SaldoWidgetProvider()) { SaldoWidgetView(entry: $0) }
             .configurationDisplayName("SaldoLeve · Lista ampliada")
-            .description("Lista vertical que ocupa uma página da Tela de Início, com subtotais de tarefas.")
+            .description("Lista vertical que ocupa uma página inteira da Tela de Início. Toque para abrir a Agenda.")
             .supportedFamilies([.systemExtraLargePortrait])
     }
 }
