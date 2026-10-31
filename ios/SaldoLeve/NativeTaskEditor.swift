@@ -162,7 +162,7 @@ struct NativeTaskEditor: View {
             if showAttachments { attachmentsSection }
             if showComments || !comments.isEmpty { commentsSection }
             Section {
-                DisclosureGroup("Mais opções") {
+                DisclosureGroup {
                     Button("Gerar parcelas ou série") { installmentGenerator = true }.disabled(!editable || saving)
                     if task.isMoney && !task.checks.isEmpty { Button { openPayment() } label: { Label("Pagar / antecipar parcelas", systemImage: "creditcard") }.disabled(!editable || saving || !store.canWrite) }
                     NativeDateField(fields: $task.fields, key: "startAt", title: "Início")
@@ -181,7 +181,7 @@ struct NativeTaskEditor: View {
                         Button(task.status == "archived" ? "Desarquivar tarefa" : "Arquivar tarefa") { task.fields["status"] = .string(task.status == "archived" ? "todo" : "archived"); save() }.disabled(saving)
                         Button("Mover para a lixeira", role: .destructive) { trashConfirm = true }.disabled(saving)
                     }
-                }.font(.system(size: 14))
+                } label: { Text("Mais opções").accessibilityIdentifier("task-more-options") }.font(.system(size: 14))
             }.disabled(!editable || loading || closing)
             if store.offline || !store.networkAvailable { Text("Sem conexão com o servidor. Somente consulta: não é possível editar ou salvar.").font(.footnote).foregroundStyle(.orange).listRowSeparator(.hidden) }
         }
