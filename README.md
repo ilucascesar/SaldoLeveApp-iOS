@@ -10,7 +10,7 @@ Marque run_ui_tests quando precisar validar a interface: a seleção atual cobre
 
 A compilação não recebe senha Apple, certificado ou perfil de provisionamento. Instale o IPA com seu instalador de sideload e sua própria conta Apple. A assinatura gratuita precisa ser renovada. O app exige uma instalação compatível do backend e um login válido nessa instalação.
 
-Na versão 2.7.0, o widget ganha opções de aparência (cor, fundo, marcador, separadores, contagens) e um simulador fixo; aniversariantes podem ser concluídos, ter avisos persistentes e sincronizar com os Contatos; a Siri cria tarefas (“me avise de … daqui 2 horas”); o ícone oferece Nova tarefa e Suspender avisos; e há lembretes por local ao chegar ou sair de lugares salvos. Envie primeiro o backend 2.7.0 (API 7).
+Na versão 2.7.0, o widget ganha opções de aparência (cor, fundo, marcador, separadores, contagens) e um simulador fixo; aniversariantes podem ser concluídos, ter avisos persistentes e sincronizar com os Contatos; a Siri cria tarefas (“criar tarefa”, “adicionar lembrete” ou “me lembre” no SaldoLeve, respondendo falando ou escrevendo); o ícone oferece Nova tarefa e Suspender avisos; e há lembretes por local ao chegar ou sair de lugares salvos. Envie primeiro o backend 2.7.0 (API 7).
 
 Na versão 2.6.0, as abas principais passam a ser Despesas (com o mês em aberto, resumos, filtros e cards) e Agenda. Configurações → Layout traz um simulador ao vivo para Despesas, Agenda, tarefa aberta e widgets, além de quatro estilos personalizáveis para tarefas com muitas subtarefas. O widget abre direto a Agenda, sem mini cards, e o formato vertical usa toda a altura. Envie primeiro o backend 2.6.0 para salvar os novos layouts. A geração padrão valida os modelos e o IPA, sem executar o simulador.
 
