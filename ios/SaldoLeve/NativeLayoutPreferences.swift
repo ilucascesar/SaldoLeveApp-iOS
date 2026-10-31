@@ -4,7 +4,7 @@ struct NativeLayoutPreferences: Codable, Equatable {
     static let key = "nativeLayoutPreferencesV1"
     var layoutRevision = 2
     var startPage = "tasks"
-    var tabOrder = ["dashboard", "expenses", "tasks"]
+    var tabOrder = ["dashboard", "tasks"]
     var showBottomBar = true
     var compactHeader = true
     var showSearch = true
@@ -43,6 +43,25 @@ struct NativeLayoutPreferences: Codable, Equatable {
     var taskDefaultPeriodField = "due"
     var taskDefaultFrom = ""
     var taskDefaultTo = ""
+    var taskDetailLayout = "elegant"
+    var taskDetailGrouping = "status"
+    var taskDetailProgress = true
+    var taskDetailMetadata = true
+    var taskDetailExpandDone = true
+    static let taskDetailStyles = ["elegant", "cards", "timeline", "minimal"]
+    static let taskDetailGroupings = ["status", "date", "none"]
+    // Choosing a style starts from its recommended options; each one can still
+    // be changed afterwards without losing the chosen style.
+    mutating func applyTaskDetailPreset(_ style: String) {
+        guard Self.taskDetailStyles.contains(style) else { return }
+        taskDetailLayout = style
+        switch style {
+        case "cards": taskDetailGrouping = "status"; taskDetailProgress = true; taskDetailMetadata = true; taskDetailExpandDone = false
+        case "timeline": taskDetailGrouping = "date"; taskDetailProgress = true; taskDetailMetadata = true; taskDetailExpandDone = true
+        case "minimal": taskDetailGrouping = "none"; taskDetailProgress = false; taskDetailMetadata = false; taskDetailExpandDone = true
+        default: taskDetailGrouping = "status"; taskDetailProgress = true; taskDetailMetadata = true; taskDetailExpandDone = true
+        }
+    }
     var taskDateFilter: NativeTaskDateFilter {
         get { NativeTaskDateFilter(period: taskDefaultPeriod, field: taskDefaultPeriodField, from: taskDefaultFrom, to: taskDefaultTo) }
         set { taskDefaultPeriod = newValue.period; taskDefaultPeriodField = newValue.field; taskDefaultFrom = newValue.from; taskDefaultTo = newValue.to }
@@ -52,14 +71,17 @@ struct NativeLayoutPreferences: Codable, Equatable {
     var rowPadding: Double { density == "compact" ? 2 : density == "spacious" ? 10 : 5 }
     var visibleDashboard: [String] { dashboardOrder.filter { !dashboardHidden.contains($0) } }
     mutating func normalize() {
-        let tabs = ["dashboard", "expenses", "tasks"]
+        let tabs = ["dashboard", "tasks"]
         let blocks = ["balance", "totals", "expenses", "pending", "shortcuts"]
         func ordered(_ supplied: [String], _ allowed: [String]) -> [String] {
             var seen = Set<String>(); return (supplied + allowed).filter { allowed.contains($0) && seen.insert($0).inserted }
         }
-        tabOrder = ordered(tabOrder, tabs); dashboardOrder = ordered(dashboardOrder, blocks)
+        tabOrder = ordered(tabOrder.map { $0 == "expenses" ? "dashboard" : $0 }, tabs); dashboardOrder = ordered(dashboardOrder, blocks)
         dashboardHidden = Array(Set(dashboardHidden.filter { blocks.contains($0) })).sorted()
+        if startPage == "expenses" { startPage = "dashboard" }
         if !tabs.contains(startPage) { startPage = "tasks" }
+        if !Self.taskDetailStyles.contains(taskDetailLayout) { taskDetailLayout = "elegant" }
+        if !Self.taskDetailGroupings.contains(taskDetailGrouping) { taskDetailGrouping = "status" }
         if !["compact", "comfortable", "spacious"].contains(density) { density = "comfortable" }
         textScale = textScale.isFinite ? min(1.3, max(0.85, textScale)) : 1
         cardRadius = cardRadius.isFinite ? min(30, max(8, cardRadius)) : 20

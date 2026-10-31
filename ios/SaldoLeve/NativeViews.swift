@@ -74,8 +74,10 @@ struct NativeRootView: View {
     }
     private func openWidgetDestination() {
         guard let url = pendingURL, active, !store.loading, !store.locked, store.user != nil else { return }
-        if url.host == "focus" { pendingURL = nil; store.openedFinance = .init(kind: "focus"); return }
         store.section = .tasks
+        store.openedFinance = nil; store.menuOpen = false
+        // Legacy widgets also enter the task list, never the old focus modal.
+        store.taskScopeRequest = "all"
         let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "id" }?.value
         guard let id else { pendingURL = nil; return }
         if let task = store.snapshot.items.first(where: { $0.id == id }) {

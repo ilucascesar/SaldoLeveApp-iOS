@@ -13,14 +13,19 @@ import SwiftUI
     static var navigationMenu: [String] { menu.filter { !settingsMenuKeys.contains($0) } }
     static let labels = ["dashboard":"Visão geral", "expenses":"Despesas", "tasks":"Tarefas", "birthdays":"Aniversariantes", "search":"Busca geral", "transactions":"Lançamentos", "shared":"Compartilhados", "focus":"Meu dia", "layout":"Layout e personalização", "remote":"Configurar aplicativo", "widgets":"Widgets", "notifications":"Notificações e contador", "profile":"Minha conta"]
     var canWrite: Bool { loaded && parent.canWrite && !loading && !saving }
-    func label(_ key: String) -> String { let label = snapshot.config.record("labels").text(key); return label.isEmpty ? Self.labels[key] ?? key : label }
+    func label(_ key: String) -> String {
+        let label = snapshot.config.record("labels").text(key)
+        if key == "dashboard", label.isEmpty || label == "Visão geral" { return "Despesas" }
+        if key == "tasks", label.isEmpty || label == "Tarefas" { return "Agenda" }
+        return label.isEmpty ? Self.labels[key] ?? key : label
+    }
     func text(_ key: String, fallback: String) -> String { let value = snapshot.config.record("texts").text(key); return value.isEmpty ? fallback : value }
     func enabled(_ key: String) -> Bool { snapshot.config.record("features")[key] != .bool(false) }
     var visibleMenu: [String] {
         let supplied = snapshot.config["menuOrder"]?.array.map(\.string) ?? []
         let hidden = Set(snapshot.config["hiddenMenu"]?.array.map(\.string) ?? [])
         var seen = Set<String>()
-        return (supplied + Self.menu).filter { Self.menu.contains($0) && seen.insert($0).inserted && (!hidden.contains($0) || ["tasks", "remote", "profile"].contains($0)) && (!["birthdays", "search"].contains($0) || enabled($0)) }
+        return (supplied + Self.menu).filter { $0 != "expenses" && Self.menu.contains($0) && seen.insert($0).inserted && (!hidden.contains($0) || ["dashboard", "tasks", "remote", "profile"].contains($0)) && (!["birthdays", "search"].contains($0) || enabled($0)) }
     }
     func reset() { snapshot = NativePlatformSnapshot(); loaded = false; issue = nil }
     func refresh() async {
@@ -67,7 +72,7 @@ import SwiftUI
         } catch { parent.noteConnectionFailure(error); if (error as? NativeFailure)?.status != 499 { await refresh() }; throw error }
     }
     func saveLayout(_ layout: NativeLayoutPreferences, revision: Int) async throws {
-        guard snapshot.apiVersion >= 5 else { throw NativeFailure("Envie primeiro o pacote HostGator 2.5.6 para salvar os novos padrões de tarefas.", status: 422) }
+        guard snapshot.apiVersion >= 6 else { throw NativeFailure("Envie primeiro o pacote HostGator 2.6.0 para salvar os novos layouts.", status: 422) }
         var config = snapshot.config
         let bytes = try JSONEncoder().encode(layout)
         config["layout"] = .object(try JSONDecoder().decode(JSONObject.self, from: bytes))
@@ -101,7 +106,7 @@ import SwiftUI
     }
     #if DEBUG
     func preview() {
-        snapshot.apiVersion = 5
+        snapshot.apiVersion = 6
         var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "America/Sao_Paulo")!
         let now = Date(), tomorrow = c.date(byAdding: .day, value: 1, to: now)!
         var today = NativeBirthday.fresh(), next = NativeBirthday.fresh()

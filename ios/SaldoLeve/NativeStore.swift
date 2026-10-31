@@ -91,7 +91,7 @@ final class NativeStore: ObservableObject {
             guard let self, user != nil else { return }
             if id.hasPrefix("birthday:") { openedFinance = .init(kind: "birthdays", fields: ["id": .string(String(id.dropFirst(9)))]); return }
             if id.hasPrefix("expense:") {
-                section = .expenses
+                section = .dashboard
                 Task { await self.finance.refresh(); self.openedFinance = .init(kind: "detail", fields: ["id": .string(String(id.dropFirst(8)))]) }
                 return
             }

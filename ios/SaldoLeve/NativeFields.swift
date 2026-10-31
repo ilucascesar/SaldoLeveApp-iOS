@@ -216,6 +216,8 @@ struct NativeInlineCheckRow: View {
     var saving = false
     var monthly = false
     var canTransfer = false
+    var layoutStyle = "elegant"
+    var showMetadata = true
     var payment: () -> Void = {}
     var values: () -> Void = {}
     var pause: (Int, Bool) -> Void = { _, _ in }
@@ -228,14 +230,19 @@ struct NativeInlineCheckRow: View {
             Button {
                 if money && !fields.flag("done") { payment() }
                 else { fields["done"] = .bool(!fields.flag("done")) }
-            } label: { Image(systemName: fields.flag("done") ? "checkmark.circle.fill" : "circle").font(.system(size: 21, weight: .light)).foregroundStyle(fields.flag("done") ? Color.secondary.opacity(0.6) : nativeBlue).frame(width: 26, height: 44) }.disabled(!editable || saving).accessibilityLabel(fields.flag("done") ? "Reabrir subtarefa" : money ? "Registrar pagamento" : "Concluir subtarefa")
-            VStack(alignment: .leading, spacing: 2) {
-                TextField("Nome da subtarefa", text: Binding(get: { fields.text("text") }, set: { fields["text"] = .string($0) }), axis: .vertical).font(.system(size: 15)).strikethrough(fields.flag("done")).lineLimit(1...8).frame(minHeight: 44).disabled(!editable)
-                if money { Button { if fields.flag("done") { values() } else { payment() } } label: { Text("Original: " + NativeDate.money(fields["amountCents"]?.number)).font(.system(size: 12)).foregroundStyle(.secondary) }.disabled(!editable).padding(.bottom, 5) }
+            } label: { Image(systemName: fields.flag("done") ? "checkmark.circle.fill" : "circle").font(.system(size: layoutStyle == "minimal" ? 19 : 21, weight: .light)).foregroundStyle(fields.flag("done") ? Color.secondary.opacity(0.6) : nativeBlue).background(Circle().fill(layoutStyle == "timeline" ? nativePaper : Color.clear).frame(width: 22, height: 22)).frame(width: 26, height: layoutStyle == "minimal" ? 36 : 44) }.disabled(!editable || saving).accessibilityLabel(fields.flag("done") ? "Reabrir subtarefa" : money ? "Registrar pagamento" : "Concluir subtarefa")
+            VStack(alignment: .leading, spacing: layoutStyle == "minimal" ? 0 : 5) {
+                TextField("Nome da subtarefa", text: Binding(get: { fields.text("text") }, set: { fields["text"] = .string($0) }), axis: .vertical).font(.system(size: layoutStyle == "minimal" ? 14 : 16, weight: layoutStyle == "cards" ? .medium : .regular)).strikethrough(fields.flag("done")).foregroundStyle(fields.flag("done") ? Color.secondary : Color.primary).lineLimit(1...8).frame(minHeight: layoutStyle == "minimal" ? 36 : 44).disabled(!editable)
+                if showMetadata {
+                    HStack(spacing: 8) {
+                        NativeDateChip(fields: $fields, key: "remindAt", compact: true, enabled: editable && !saving)
+                        if money { Button { if fields.flag("done") { values() } else { payment() } } label: { Text("Original: " + NativeDate.money(fields["amountCents"]?.number)).font(.system(size: 12, weight: .medium)).foregroundStyle(nativeBlue).lineLimit(1).minimumScaleFactor(0.8) }.disabled(!editable) }
+                    }.padding(.bottom, 5)
+                }
                 if let until = NativeDate.parse(fields.text("pausedUntil")), until > Date() { Text("Pausada até " + until.formatted(.dateTime.day().month(.abbreviated).locale(Locale(identifier: "pt_BR")))).font(.system(size: 11)).foregroundStyle(.orange) }
             }.frame(maxWidth: .infinity, alignment: .leading)
-            NativeDateChip(fields: $fields, key: "remindAt", compact: true, enabled: editable && !saving).frame(maxWidth: NativeDate.parse(fields.text("remindAt")) == nil ? 36 : 110)
             Menu {
+                if !showMetadata { Button("Data e horário") { date = true } }
                 Button { attach() } label: { Label("Anexos e comprovantes", systemImage: "paperclip") }
                 if money { if !fields.flag("done") { Button("Pagar / antecipar") { payment() } }; Button(fields.flag("done") ? "Valores original e pago" : "Alterar valor original") { if fields.flag("done") { values() } else { amount = true } } }
                 Toggle("Repetir no próximo ciclo mensal", isOn: Binding(get: { fields["repeatMonthly"]?.bool ?? true }, set: { fields["repeatMonthly"] = .bool($0) }))
@@ -246,6 +253,9 @@ struct NativeInlineCheckRow: View {
                 if canTransfer { Button("Transferir para outra tarefa") { transfer() } }
                 Button("Remover subtarefa", role: .destructive) { remove() }
             } label: { Image(systemName: "ellipsis").foregroundStyle(.secondary).frame(width: 28, height: 44) }.disabled(!editable || saving).accessibilityLabel("Mais opções da subtarefa")
-        }.buttonStyle(.borderless).padding(.vertical, 2).sheet(isPresented: $amount) { NativeMoneyOptions(fields: $fields, isCheck: true) }
+        }.buttonStyle(.borderless).padding(.vertical, layoutStyle == "minimal" ? 0 : 6)
+            .sheet(isPresented: $amount) { NativeMoneyOptions(fields: $fields, isCheck: true) }
+            .sheet(isPresented: $date) { NavigationStack { Form { NativeDateField(fields: $fields, key: "remindAt", title: "Data e horário") }.navigationTitle("Subtarefa").toolbar { Button("Pronto") { date = false } } } }
     }
+    @State private var date = false
 }

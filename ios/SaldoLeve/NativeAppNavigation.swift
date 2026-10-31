@@ -1,10 +1,10 @@
 import SwiftUI
 
 enum NativeAppSection: String, CaseIterable, Identifiable {
-    case dashboard = "Visão geral", expenses = "Despesas", transactions = "Lançamentos", shared = "Compartilhados", tasks = "Tarefas"
+    case dashboard = "Despesas", expenses = "Despesas (lista)", transactions = "Lançamentos", shared = "Compartilhados", tasks = "Agenda"
     var id: String { rawValue }
     var key: String { switch self { case .dashboard: return "dashboard"; case .expenses: return "expenses"; case .transactions: return "transactions"; case .shared: return "shared"; case .tasks: return "tasks" } }
-    init(key: String) { self = Self.allCases.first { $0.key == key } ?? .tasks }
+    init(key: String) { self = key == "expenses" ? .dashboard : Self.allCases.first { $0.key == key } ?? .tasks }
     var icon: String { switch self { case .dashboard: return "house"; case .expenses: return "wallet.pass"; case .transactions: return "list.bullet.rectangle"; case .shared: return "person.2"; case .tasks: return "checkmark.circle" } }
 }
 struct NativeAppShell: View {
@@ -41,7 +41,7 @@ struct NativeAppShell: View {
                 #if DEBUG
                 let flags = ProcessInfo.processInfo.arguments
                 if flags.contains("--preview-review") { Task { _ = await NativeWarningPresenter.confirm([["field": .string("invoice.totalCents"), "before": .number(100000), "after": .number(10000000), "message": .string("Confira o valor da fatura.")]]) } }
-                if flags.contains("--preview-expenses") || flags.contains("--preview-columns4") { store.section = .expenses }
+                if flags.contains("--preview-expenses") || flags.contains("--preview-columns4") { store.section = .dashboard }
                 if flags.contains("--preview-dashboard") || flags.contains("--preview-menu") { store.section = .dashboard }
                 if flags.contains("--preview-dashboard-refresh") { store.section = .dashboard; var preferences = store.layout; preferences.dashboardHidden = ["pending", "expenses", "totals", "shortcuts"]; store.layout = preferences }
                 if flags.contains("--preview-menu") { store.menuOpen = true }

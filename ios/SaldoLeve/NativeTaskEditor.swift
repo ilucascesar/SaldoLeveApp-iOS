@@ -52,12 +52,14 @@ struct NativeTaskEditor: View {
     @State private var installmentGenerator = false
     @State private var installmentPayment = false
     @State private var installmentCheckID: String?
+    @State private var collapsedGroups: Set<String>
     init(store: NativeStore, original: NativeTask) {
         self.store = store; self.original = original
         let current = store.snapshot.items.first(where: { $0.id == original.id }) ?? original
         _task = State(initialValue: current)
         _baseline = State(initialValue: current)
         _serverReady = State(initialValue: !store.editorSyncEnabled)
+        _collapsedGroups = State(initialValue: store.layout.taskDetailExpandDone ? [] : ["done"])
     }
     private var editable: Bool { serverReady && store.networkAvailable && !store.offline && !store.needsSync && !reloading && store.snapshot.lists.first(where: { $0.id == task.categoryID })?.canEdit == true && task.status != "trashed" }
     private var repeating: Binding<Bool> {
@@ -220,16 +222,37 @@ struct NativeTaskEditor: View {
     private var reminderLabel: String {
         (task.fields["dateRemindersEnabled"] == .bool(false) ? "Avisos desativados" : "Avisos: \(max(60, task.fields.integer("overdueMinutes")) / 60) h") + (task.fields["repeat"]?.object.text("frequency") == "monthly" ? " · Mensal" : "")
     }
-    private var checklistSection: some View {
-        Section {
-            ForEach(task.checks) { check in
-                NativeInlineCheckRow(fields: checkBinding(check.id), money: task.isMoney, editable: editable && !loading && !closing, saving: saving, monthly: task.fields["repeat"]?.object.text("frequency") == "monthly" && !task.id.isEmpty, canTransfer: !task.id.isEmpty, payment: { openPayment(check.id) }, values: { autosave?.cancel(); Task { if await commit(closing: false) { valuesRecord = NativeRecord(fields: ["id": .string(check.id)]) } } }, pause: { months, resume in pause(months: months, resume: resume, checkID: check.id) }, transfer: { movingCheck = check.id }, attach: { uploadTarget = check.id; showAttachments = true }, remove: { removingCheck = check.id })
+    // Style, grouping and details come from Configurações → Layout → Tarefa aberta.
+    @ViewBuilder private var checklistSection: some View {
+        let style = store.layout.taskDetailLayout
+        let checks = task.checks
+        let groups = NativeTaskDetailLayout.groups(checks, grouping: store.layout.taskDetailGrouping)
+        if store.layout.taskDetailProgress && checks.count > 1 {
+            Section {
+                NativeTaskProgressHeader(done: checks.filter(\.done).count, total: checks.count, style: style, amount: task.isMoney ? (task.moneyMode == "receive" ? "A receber: " : "A pagar: ") + NativeDate.money(task.pendingAmount) : nil)
+            }.listRowSeparator(.hidden).listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 6, leading: 14, bottom: 6, trailing: 14))
+        }
+        ForEach(groups) { group in
+            Section {
+                if !collapsedGroups.contains(group.id) {
+                    ForEach(Array(group.ids.enumerated()), id: \.element) { offset, id in
+                        checkRow(id, style: style).modifier(NativeTaskDetailRowChrome(style: style, done: checks.first { $0.id == id }?.done ?? false, first: offset == 0, last: offset == group.ids.count - 1))
+                    }
+                }
+            } header: {
+                if group.title.isEmpty { HStack { Text("Subtarefas"); Spacer(); Text("\(checks.filter(\.done).count)/\(checks.count)") }.font(.system(size: 12)).textCase(nil) }
+                else { NativeTaskDetailGroupHeader(group: group, collapsed: collapsedGroups.contains(group.id)) { withAnimation(.easeInOut(duration: 0.2)) { if collapsedGroups.contains(group.id) { collapsedGroups.remove(group.id) } else { collapsedGroups.insert(group.id) } } } }
             }
-            if editable {
+        }
+        if editable {
+            Section {
                 HStack(spacing: 10) { Image(systemName: "plus.circle.dashed").font(.system(size: 21, weight: .light)).foregroundStyle(.secondary).frame(width: 26); TextField("Adicionar subtarefa", text: $newCheck, axis: .vertical).submitLabel(.done).onSubmit { addCheck() }; if !newCheck.isEmpty { Button { addCheck() } label: { Image(systemName: "arrow.up.circle.fill").font(.title3) } } }.frame(minHeight: 44)
-                if task.checks.count > 1 { Button { reordering = true } label: { Label("Reordenar subtarefas", systemImage: "arrow.up.arrow.down") }.font(.system(size: 12)).padding(.vertical, 4) }
+                if checks.count > 1 { Button { reordering = true } label: { Label("Reordenar subtarefas", systemImage: "arrow.up.arrow.down") }.font(.system(size: 12)).padding(.vertical, 4) }
             }
-        } header: { if !task.checks.isEmpty { HStack { Text("Subtarefas"); Spacer(); Text("\(task.checks.filter(\.done).count)/\(task.checks.count)") }.font(.system(size: 12)).textCase(nil) } }
+        }
+    }
+    private func checkRow(_ id: String, style: String) -> some View {
+        NativeInlineCheckRow(fields: checkBinding(id), money: task.isMoney, editable: editable && !loading && !closing, saving: saving, monthly: task.fields["repeat"]?.object.text("frequency") == "monthly" && !task.id.isEmpty, canTransfer: !task.id.isEmpty, layoutStyle: style, showMetadata: store.layout.taskDetailMetadata, payment: { openPayment(id) }, values: { autosave?.cancel(); Task { if await commit(closing: false) { valuesRecord = NativeRecord(fields: ["id": .string(id)]) } } }, pause: { months, resume in pause(months: months, resume: resume, checkID: id) }, transfer: { movingCheck = id }, attach: { uploadTarget = id; showAttachments = true }, remove: { removingCheck = id })
     }
     private var reorderSheet: some View {
         NavigationStack {

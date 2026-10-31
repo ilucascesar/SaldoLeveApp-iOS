@@ -18,15 +18,12 @@ struct NativeFinanceScreen: View {
     private var data: NativeFinanceSnapshot { finance.snapshot }
     private var layout: NativeLayoutPreferences { store.layout }
     private var expenses: [JSONObject] {
-        ordered(data.expenses.filter { e in
+        let filtered = ordered(data.expenses.filter { e in
             let id = e.text("id")
             return (section != .shared || e.flag("shared")) && (search.isEmpty || e.text("name").localizedStandardContains(search)) &&
                 (status == "all" || (status == "active" && e["active"] != .bool(false)) || (status == "inactive" && e["active"] == .bool(false)) || (status == "pending" && data.isPending(id)) || (status == "paid" && data.paid(id)))
-        })
-    }
-    private var dashboardExpenses: [JSONObject] {
-        let all = ordered(data.expenses.filter { layout.dashboardShowPaid || !data.paid($0.text("id")) })
-        return layout.dashboardExpenseLimit == 0 ? all : Array(all.prefix(layout.dashboardExpenseLimit))
+        }).filter { section != .dashboard || layout.dashboardShowPaid || !data.paid($0.text("id")) }
+        return section != .dashboard || layout.dashboardExpenseLimit == 0 ? filtered : Array(filtered.prefix(layout.dashboardExpenseLimit))
     }
     private var transactions: [JSONObject] {
         data.transactions(txExpense, activeOnly: activeOnly).filter { tx in (txType.isEmpty || tx.text("type") == txType) && (search.isEmpty || [tx.text("desc"), tx.text("note"), tx.text("category"), data.expense(tx.text("expenseId")).text("name")].joined(separator: " ").localizedStandardContains(search)) }
@@ -46,7 +43,7 @@ struct NativeFinanceScreen: View {
                     .frame(minHeight: viewport.size.height, alignment: .topLeading).contentShape(Rectangle())
             }.scrollBounceBehavior(.always, axes: .vertical).accessibilityIdentifier("finance-scroll-" + section.key).background(nativeCanvas).navigationTitle(section.rawValue)
                 .navigationBarTitleDisplayMode(layout.compactHeader ? .inline : .large)
-                .financeSearch(enabled: layout.showSearch && section != .dashboard, text: $search)
+                .financeSearch(enabled: layout.showSearch, text: $search)
                 .refreshable { await finance.refresh() }
                 .toolbar { toolbar }
                 .sheet(item: $route) { NativeFinanceModal(finance: finance, route: $0) }
@@ -99,8 +96,7 @@ struct NativeFinanceScreen: View {
             case "balance": balance
             case "totals": totals
             case "expenses":
-                sectionHeading("Minhas despesas", subtitle: "\(dashboardExpenses.count) contas")
-                cards(dashboardExpenses)
+                expenseContent
             case "pending": pending
             default: shortcuts
             }
@@ -148,7 +144,7 @@ struct NativeFinanceScreen: View {
     private var expenseContent: some View {
         VStack(alignment: .leading, spacing: layout.spacing) {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) { ForEach(["active", "pending", "paid", "all", "inactive"], id: \.self) { key in Button { status = key } label: { Text(["active":"Ativas", "pending":"Pendentes", "paid":"Pagas", "all":"Todas", "inactive":"Desativadas"][key]!).font(.system(size: 13, weight: .semibold)).padding(.horizontal, 14).padding(.vertical, 10).foregroundStyle(status == key ? .white : Color.primary).background(status == key ? nativeBlue : nativePaper, in: Capsule()) }.buttonStyle(.plain) } }
+                HStack(spacing: 8) { ForEach(["all", "active", "pending", "paid", "inactive"], id: \.self) { key in Button { status = key } label: { Text(["active":"Ativas", "pending":"Pendentes", "paid":"Pagas", "all":"Todas", "inactive":"Desativadas"][key]!).font(.system(size: 13, weight: .semibold)).padding(.horizontal, 14).padding(.vertical, 10).foregroundStyle(status == key ? .white : Color.primary).background(status == key ? nativeBlue : nativePaper, in: Capsule()) }.buttonStyle(.plain) } }
             }
             if section == .shared { Text("Sua parte no mês: " + NativeFinanceFormat.money(data.active.decimal("sharedConsidered"))).font(.subheadline).foregroundStyle(.secondary) }
             if layout.expenseGrouping == "none" { cards(expenses) }

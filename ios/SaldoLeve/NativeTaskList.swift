@@ -42,6 +42,8 @@ struct NativeTaskList: View {
     @State private var initialized = false
     @FocusState private var quickFocused: Bool
     @FocusState private var searchFocused: Bool
+    // Only what the filter sheet controls lights the icon; "Limpar filtros" clears it.
+    private var hasFilters: Bool { dateFilter.period != "all" || sort != .due }
     private var currentCategory: NativeCategory? { store.snapshot.lists.first { $0.id == category } }
     private var heading: String { page == .habits ? "Meus hábitos" : page == .calendar ? (currentCategory?.name ?? "Calendário") : currentCategory?.name ?? (tag.isEmpty ? (scope == .all ? store.platform.text("tasksHeading", fallback: scope.rawValue) : scope.rawValue) : "#" + tag) }
     private var canAdd: Bool { store.user != nil && store.networkAvailable && !store.offline && !store.needsSync && (scope != .trash && !store.editableCategories.isEmpty && (currentCategory == nil || currentCategory?.canEdit == true)) }
@@ -116,7 +118,7 @@ struct NativeTaskList: View {
             Text(heading).font(.system(size: 21, weight: .bold)).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
             if let category = currentCategory { Image(systemName: category.fields.objects("members").isEmpty ? "lock" : "person.2").font(.system(size: 12)).foregroundStyle(.secondary) }
             Button { withAnimation { searching.toggle() }; searchFocused = searching; if !searching { search = "" } } label: { Image(systemName: "magnifyingglass").font(.system(size: 20)).frame(width: 44, height: 44) }.accessibilityLabel("Buscar")
-            Button { filtersOpen = true } label: { Image(systemName: "line.3.horizontal.decrease.circle").font(.system(size: 21)).foregroundStyle(dateFilter.period == "all" && sort == .due ? Color.primary : nativeBlue).frame(width: 44, height: 44) }.accessibilityLabel("Filtros e ordenação")
+            Button { filtersOpen = true } label: { Image(systemName: hasFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle").font(.system(size: 21)).foregroundStyle(hasFilters ? nativeBlue : Color.primary).frame(width: 44, height: 44) }.accessibilityLabel("Filtros e ordenação").accessibilityValue(hasFilters ? "Filtros ativos" : "Sem filtros")
             Menu {
                 Button("Filtros e ordenação") { filtersOpen = true }
                 Button { selecting.toggle(); selected.removeAll() } label: { Label(selecting ? "Cancelar seleção" : "Selecionar tarefas", systemImage: "checkmark.circle") }
@@ -144,7 +146,6 @@ struct NativeTaskList: View {
         List {
             Section {
                 if projecting { ProgressView("Organizando tarefas…").font(.caption) }; if page == .list && store.layout.taskShowSummaries { summaries }
-                if dateFilter.period != "all" || sort != .due { Button { filtersOpen = true } label: { Label(sort.label + " · " + (NativeTaskDateFilter.labels[dateFilter.period] ?? "Período"), systemImage: "line.3.horizontal.decrease.circle") }.font(.caption).foregroundStyle(nativeBlue) }
                 if !dateFilter.valid { Text("A data inicial deve ser anterior ou igual à data final.").font(.caption).foregroundStyle(.red) }
                 if page == .calendar { NativeCalendarGrid(store: store, selection: $calendarDay, categoryID: category) }
                 if !category.isEmpty && store.layout.taskShowAmounts { NativeMoneySummaryLine(store: store, categoryID: category) }
@@ -301,7 +302,7 @@ struct NativeTaskFilterEditor: View {
                     Button(action: save) { if saving { ProgressView() } else { Label("Usar como padrão ao abrir", systemImage: "pin") } }.disabled(!canSave || saving || !filter.valid)
                     if saved { Label("Padrão confirmado no servidor", systemImage: "checkmark.circle").foregroundStyle(.green) }
                     if let issue { Text(issue).foregroundStyle(.red).font(.footnote) }
-                } footer: { Text("Sem salvar o padrão, a escolha vale para esta visualização. O padrão também fica em Configurações → Layout e organização → Tarefas. A aba inicial é sempre Tudo.") }
+                } footer: { Text("Sem salvar o padrão, a escolha vale para esta visualização. O padrão também fica em Configurações → Layout e organização → Agenda. A aba inicial é sempre Tudo. O ícone de filtro fica azul e preenchido enquanto houver filtro ativo.") }
             }.navigationTitle("Filtros e ordenação").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Concluir") { dismiss() }.disabled(!filter.valid || saving) } }
         }.interactiveDismissDisabled(!filter.valid || saving)

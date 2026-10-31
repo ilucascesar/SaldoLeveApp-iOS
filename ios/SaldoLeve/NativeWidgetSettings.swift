@@ -9,17 +9,15 @@ struct NativeWidgetSettings: View {
     @State private var busy = false
     @State private var issue: String?
     @State private var revoke: NativeRecord?
-    @State private var focus = false
     private var selected: [String] { settings["listIds"]?.array.map(\.string) ?? [] }
     var body: some View {
         Form {
             Section {
                 Label("Widgets do SaldoLeve", systemImage: "square.grid.2x2.fill").font(.headline)
-                Text("Lista e quantidades de Hoje, Atrasadas e Próximas.").font(.subheadline).foregroundStyle(.secondary)
+                Text("Lista de Hoje, Atrasadas e Próximas. Tocar no widget abre a Agenda.").font(.subheadline).foregroundStyle(.secondary)
                 NativeWidgetLayoutPreview(store: store, display: display)
-                Button("Abrir Meu dia no aplicativo") { focus = true }
                 if #available(iOS 27.0, *) {
-                    Text("Tamanhos: Pequeno, Médio, Grande e Extra grande vertical. O vertical mostra uma lista mais alta; escolha até 30 linhas nas opções abaixo.").font(.footnote).foregroundStyle(.secondary)
+                    Text("Tamanhos: Pequeno, Médio, Grande e Extra grande vertical (tela cheia, 4×6). O vertical usa toda a altura disponível; o limite de linhas abaixo vale para os outros tamanhos.").font(.footnote).foregroundStyle(.secondary)
                     Text("Para instalar diretamente o maior: segure uma área vazia da Tela de Início → Editar → Adicionar Widget → SaldoLeve → SaldoLeve · Lista ampliada. Ele ocupa uma página inteira. Se um widget antigo não mudar de tamanho, adicione essa opção nova e copie o código de conexão abaixo.").font(.footnote).foregroundStyle(.secondary)
                 } else {
                     Text("Pequeno, Médio e Grande estão disponíveis neste iPhone. O Extra grande vertical requer iOS 27 ou posterior.").font(.footnote).foregroundStyle(.secondary)
@@ -34,11 +32,10 @@ struct NativeWidgetSettings: View {
                 Stepper("Texto: \(integer("textSize", fallback: 12).wrappedValue) pt", value: integer("textSize", fallback: 12), in: 11...16)
                 Stepper("Próximas: \(integer("upcomingDays", fallback: 7).wrappedValue) dias", value: integer("upcomingDays", fallback: 7), in: 1...30)
                 Toggle("Espaçamento compacto", isOn: flag("compact"))
-                Toggle("Subtotais de quantidade", isOn: flag("showSubtotals"))
                 Toggle("Separar lista em grupos", isOn: flag("groupByDate"))
                 Toggle("Mostrar datas", isOn: flag("showDates"))
                 Toggle("Mostrar nome das subtarefas", isOn: flag("showSubtasks"))
-                Text("O limite de linhas se ajusta ao espaço disponível no tamanho escolhido. Os subtotais contam tarefas, sem somar valores; uma tarefa com várias subtarefas conta uma vez em cada grupo.").font(.footnote).foregroundStyle(.secondary)
+                Text("O limite de linhas se ajusta ao espaço disponível no tamanho escolhido. Confira o resultado no simulador acima antes de salvar.").font(.footnote).foregroundStyle(.secondary)
             }
             Section("Grupos de Meu dia") {
                 Toggle("Hoje", isOn: flag("showToday"))
@@ -73,7 +70,6 @@ struct NativeWidgetSettings: View {
             if let issue { Section { Text(issue).foregroundStyle(.red) } }
         }.navigationTitle("Widgets").navigationBarTitleDisplayMode(.inline).task { await reload() }
             .toolbar { ToolbarItem(placement: .primaryAction) { Button("Salvar") { saveSettings() }.disabled(busy || !store.canWrite) } }
-            .sheet(isPresented: $focus) { NativeDailyFocus(store: store) }
             .confirmationDialog("Revogar esta conexão?", isPresented: Binding(get: { revoke != nil }, set: { if !$0 { revoke = nil } }), titleVisibility: .visible) { Button("Revogar conexão", role: .destructive) { if let revoke { Task { await revokeConnection(revoke.id) } }; revoke = nil } } message: { Text("Os widgets que usam esse código precisarão de uma nova conexão.") }
     }
     private func reload() async {
@@ -90,23 +86,93 @@ struct NativeWidgetSettings: View {
     private func integer(_ key: String, fallback: Int) -> Binding<Int> { Binding(get: { display[key] == nil ? fallback : display.integer(key) }, set: { setDisplay(key, .number(Double($0))) }) }
     private func flag(_ key: String) -> Binding<Bool> { Binding(get: { display[key] != .bool(false) }, set: { setDisplay(key, .bool($0)) }) }
 }
+// Widget simulator: a Home Screen grid (4 × 6 icons) showing the area each
+// size occupies and the list the current (unsaved) options would display.
 struct NativeWidgetLayoutPreview: View {
     @ObservedObject var store: NativeStore
     let display: JSONObject
-    @State private var counts: [String: Int] = [:]
+    @State private var daily: [String: [NativeTask]] = [:]
+    @State private var size = "portrait"
+    private let sizes = ["small", "medium", "large", "portrait"]
+    private let names = ["small": "Pequeno", "medium": "Médio", "large": "Grande", "portrait": "Tela cheia"]
+    private let spans = ["small": (2, 2), "medium": (4, 2), "large": (4, 4), "portrait": (4, 6)]
+    private let cell: CGFloat = 66
+    private var textSize: CGFloat { CGFloat(display["textSize"] == nil ? 12 : min(16, max(11, display.integer("textSize")))) }
+    private var compact: Bool { display["compact"] != .bool(false) }
+    private var showDates: Bool { display["showDates"] != .bool(false) }
+    private var states: [String] {
+        let all = [("today", "showToday"), ("overdue", "showOverdue"), ("upcoming", "showUpcoming")]
+        let chosen = all.filter { display[$0.1] != .bool(false) }.map { $0.0 }
+        return chosen.isEmpty ? ["today"] : chosen
+    }
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Meu dia · prévia", systemImage: "checklist").font(.subheadline.weight(.semibold)).foregroundStyle(nativeBlue)
-            if display["showSubtotals"] != .bool(false) { HStack {
-                counter("Hoje", scope: .today); counter("Atrasadas", scope: .overdue); counter("Próximas", scope: .upcoming)
-            } }
-            ForEach(Array(store.snapshot.items.filter(\.isActive).prefix(3))) { task in HStack(spacing: 8) { Image(systemName: "circle").foregroundStyle(nativeBlue); VStack(alignment: .leading, spacing: 2) { Text(task.title).lineLimit(1); if display["showDates"] != .bool(false) { Text(task.listDate.map { NativeDateLabel.text($0) } ?? "Sem data").font(.caption2).foregroundStyle(.secondary) } } }.font(.system(size: CGFloat(display.integer("textSize") == 0 ? 12 : display.integer("textSize")))).padding(.vertical, display["compact"] == .bool(false) ? 4 : 0) }
-        }.padding(14).frame(maxWidth: .infinity, alignment: .leading).background(nativeBlue.opacity(0.05), in: RoundedRectangle(cornerRadius: 18))
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Simulador do widget", systemImage: "iphone").font(.subheadline.weight(.semibold)).foregroundStyle(nativeBlue)
+            HStack(spacing: 6) {
+                ForEach(sizes, id: \.self) { key in
+                    Button { withAnimation(.easeInOut(duration: 0.2)) { size = key } } label: {
+                        VStack(spacing: 2) { Text(names[key] ?? key).font(.system(size: 12, weight: .semibold)); Text("\(spans[key]?.0 ?? 0)×\(spans[key]?.1 ?? 0)").font(.system(size: 10)) }
+                            .frame(maxWidth: .infinity).padding(.vertical, 7).foregroundStyle(size == key ? Color.white : Color.primary).background(size == key ? nativeBlue : nativePaper, in: RoundedRectangle(cornerRadius: 10))
+                    }.buttonStyle(.plain).accessibilityIdentifier("widget-simulator-" + key)
+                }
+            }
+            homeScreen.frame(maxWidth: .infinity)
+            Text("Toque no widget abre a Agenda. O tamanho é escolhido na Tela de Início; as opções abaixo mudam o conteúdo. Salve para aplicar.").font(.caption).foregroundStyle(.secondary)
+        }.padding(.vertical, 4)
             .task(id: store.taskIndex.revision.uuidString + "|" + String(display.integer("upcomingDays"))) {
                 let snapshot = store.snapshot, days = display.integer("upcomingDays") == 0 ? 7 : display.integer("upcomingDays")
-                let result = await Task.detached(priority: .userInitiated) { Dictionary(uniqueKeysWithValues: ["today", "overdue", "upcoming"].map { ($0, NativeDailyQuery.select(snapshot, state: $0, days: days).count) }) }.value
-                if !Task.isCancelled { counts = result }
+                let result = await Task.detached(priority: .userInitiated) { Dictionary(uniqueKeysWithValues: ["today", "overdue", "upcoming"].map { ($0, NativeDailyQuery.select(snapshot, state: $0, days: days)) }) }.value
+                if !Task.isCancelled { daily = result }
             }
     }
-    private func counter(_ label: String, scope: TaskScope) -> some View { VStack(alignment: .leading, spacing: 3) { Text(label).font(.system(size: 10)).foregroundStyle(.secondary); Text("\(counts[scope == .upcoming ? "upcoming" : scope.key] ?? 0)").font(.system(size: 13, weight: .semibold)) }.frame(maxWidth: .infinity, alignment: .leading) }
+    private var homeScreen: some View {
+        let span = spans[size] ?? (4, 4)
+        return ZStack(alignment: .topLeading) {
+            LinearGradient(colors: [nativeBlue.opacity(0.55), Color.purple.opacity(0.45)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            VStack(spacing: 0) {
+                ForEach(0..<6, id: \.self) { row in
+                    HStack(spacing: 0) {
+                        ForEach(0..<4, id: \.self) { column in
+                            RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Color.white.opacity(row < span.1 && column < span.0 ? 0 : 0.35)).frame(width: 46, height: 46).frame(width: cell, height: cell)
+                        }
+                    }
+                }
+            }
+            widget(width: CGFloat(span.0) * cell - 12, height: CGFloat(span.1) * cell - 12).padding(6)
+        }.frame(width: cell * 4, height: cell * 6).clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+    private func widget(width: CGFloat, height: CGFloat) -> some View {
+        let expanded = size == "large" || size == "portrait"
+        let grouped = expanded && display["groupByDate"] != .bool(false)
+        let rowHeight = textSize + (compact ? 7 : 10) + (showDates && !compact ? 12 : 0)
+        let pool = states.flatMap { state in (daily[state] ?? []).map { (state, $0) } }
+        let groupCount = grouped ? states.filter { !(daily[$0] ?? []).isEmpty }.count : 0
+        let reserved = 44 + CGFloat(groupCount * 16)
+        let requested = size == "portrait" ? 30 : (display["count"] == nil ? 10 : display.integer("count"))
+        let capacity = max(0, min(requested, Int((height - reserved) / rowHeight)))
+        let rows = Array(pool.prefix(capacity))
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack { Image(systemName: "checklist").foregroundStyle(nativeBlue); Text("Meu dia").font(.system(size: 13, weight: .semibold)); Spacer() }.frame(height: 20)
+            if rows.isEmpty { Spacer(minLength: 0); Label("Tudo em ordem", systemImage: "checkmark").font(.caption).foregroundStyle(.secondary) }
+            ForEach(Array(rows.enumerated()), id: \.offset) { offset, entry in
+                if grouped && (offset == 0 || rows[offset - 1].0 != entry.0) { Text(["today": "Hoje", "overdue": "Atrasadas", "upcoming": "Próximas"][entry.0] ?? "").font(.system(size: 10, weight: .semibold)).foregroundStyle(entry.0 == "overdue" ? Color.red : Color.secondary).frame(height: 12) }
+                HStack(spacing: 7) {
+                    Circle().stroke(entry.0 == "overdue" ? Color.red : nativeBlue, lineWidth: 1.2).frame(width: 11, height: 11)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(title(entry.1)).font(.system(size: textSize, weight: .medium)).lineLimit(1)
+                        if showDates && !compact { Text(entry.1.listDate.map { NativeDateLabel.text($0) } ?? "Sem data").font(.system(size: 9)).foregroundStyle(.secondary) }
+                    }
+                    Spacer(minLength: 0)
+                    if showDates && compact { Text(entry.1.listDate.map { NativeDateLabel.text($0) } ?? "").font(.system(size: 9)).foregroundStyle(entry.0 == "overdue" ? Color.red : Color.secondary).lineLimit(1) }
+                }.frame(height: rowHeight)
+            }
+            Spacer(minLength: 0)
+            Text("Atualizado agora").font(.system(size: 9)).foregroundStyle(.secondary)
+        }.padding(12).frame(width: width, height: height, alignment: .topLeading)
+            .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+    private func title(_ task: NativeTask) -> String {
+        guard display["showSubtasks"] != .bool(false), let check = task.checks.first(where: { !$0.done }) else { return task.title }
+        return task.title + " · " + check.title
+    }
 }
