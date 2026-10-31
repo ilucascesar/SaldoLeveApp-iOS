@@ -90,7 +90,8 @@ final class InteractionTests: XCTestCase {
         let list = home.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Lista ampliada")).firstMatch
         for _ in 0..<4 where !(list.exists && list.isHittable) { home.swipeLeft() }
         if !(list.exists && list.isHittable) { dump("kinds"); XCTFail("SaldoLeve · Lista ampliada is missing from the gallery"); return }
-        let addList = home.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Add Widget", "Adicionar Widget")).firstMatch
+        // The gallery button carries a "+" symbol before its title (" Add Widget").
+        let addList = home.buttons.matching(NSPredicate(format: "label CONTAINS %@ OR label CONTAINS %@", "Add Widget", "Adicionar Widget")).firstMatch
         if !addList.waitForExistence(timeout: 5) { dump("add-list"); XCTFail("Add Widget is missing for the vertical list"); return }
         addList.tap()
         waitForWidget(home, minWidth: 0.75, minHeight: 0.6)
