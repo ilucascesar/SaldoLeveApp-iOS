@@ -10,11 +10,11 @@ Marque run_ui_tests quando precisar validar a interface: a seleção atual cobre
 
 A compilação não recebe senha Apple, certificado ou perfil de provisionamento. Instale o IPA com seu instalador de sideload e sua própria conta Apple. A assinatura gratuita precisa ser renovada. O app exige uma instalação compatível do backend e um login válido nessa instalação.
 
-Na versão 2.5.6, tarefas oferecem ordenação por prazo, cadastro recente ou antigo, alteração, alfabeto A–Z/Z–A e ordem manual. O período pode considerar prazo, cadastro ou alteração, com intervalos prontos ou datas personalizadas. Use como padrão salva a escolha na conta. Tudo é o primeiro atalho e a aba inicial. Envie primeiro o backend 2.5.6 para persistir as novas preferências. A geração padrão valida os modelos e o IPA, sem executar o simulador.
+Na versão 2.6.0, as abas principais passam a ser Despesas (com o mês em aberto, resumos, filtros e cards) e Agenda. Configurações → Layout traz um simulador ao vivo para Despesas, Agenda, tarefa aberta e widgets, além de quatro estilos personalizáveis para tarefas com muitas subtarefas. O widget abre direto a Agenda, sem mini cards, e o formato vertical usa toda a altura. Envie primeiro o backend 2.6.0 para salvar os novos layouts. A geração padrão valida os modelos e o IPA, sem executar o simulador.
 
 ## Widgets
 
-A partir da versão 2.5.3, todas as preferências do app estão em Configurações, separadas por categorias e com busca. No iOS 27 ou posterior, a galeria também oferece SaldoLeve · Lista ampliada, uma identidade própria para adicionar diretamente o widget vertical, inclusive quando uma instância antiga não troca de tamanho. O conteúdo é uma lista com subtotais de quantidade; é possível escolher até 30 linhas, respeitando o espaço disponível. A compilação verifica a instalação do tamanho vertical na Tela de Início, além de abrir o menu.
+A partir da versão 2.5.3, todas as preferências do app estão em Configurações, separadas por categorias e com busca. No iOS 27 ou posterior, a galeria também oferece SaldoLeve · Lista ampliada, uma identidade própria para adicionar diretamente o widget vertical, inclusive quando uma instância antiga não troca de tamanho. O conteúdo é uma lista agrupada por prazo, sem mini cards; o formato vertical usa toda a altura (até 30 linhas) e o toque abre a Agenda do app. A compilação verifica a instalação do tamanho vertical na Tela de Início, além de abrir o menu.
 
 O código de conexão do widget é gerado na conta do usuário, nunca fica nos arquivos de compilação e não deve ser publicado em issues, logs ou capturas.
 
