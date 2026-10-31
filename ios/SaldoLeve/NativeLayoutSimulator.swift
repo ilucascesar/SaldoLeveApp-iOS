@@ -135,7 +135,7 @@ struct NativeSimExpenses: View {
             return NativeSimExpense(id: id, name: e.text("name"), value: data.expenseCalculation(id).decimal("integral"), paid: data.paid(id), type: e.text("type"), accent: Color(nativeHex: e.text("accent")), inactive: e["active"] == .bool(false))
         }
         if !real.isEmpty { return Array(real) }
-        let samples: [(String, Double, Bool, String, String)] = [("Cartão principal", 1849.90, false, "card", "#1f6feb"), ("Aluguel", 1400, true, "home", "#7650c4"), ("Internet", 99.90, false, "home", "#138568"), ("Academia", 119.90, true, "other", "#c03b6a"), ("Energia", 230.55, false, "home", "#b4640b"), ("Streaming", 55.90, true, "other", "#3b7ef0")]
+        let samples: [(String, Double, Bool, String, String)] = [("Fatura do cartão", 1849.90, false, "card", "#1f6feb"), ("Aluguel", 1400, true, "home", "#7650c4"), ("Internet", 99.90, false, "home", "#138568"), ("Academia", 119.90, true, "other", "#c03b6a"), ("Energia", 230.55, false, "home", "#b4640b"), ("Streaming", 55.90, true, "other", "#3b7ef0")]
         return samples.enumerated().map { NativeSimExpense(id: String($0.offset), name: $0.element.0, value: $0.element.1, paid: $0.element.2, type: $0.element.3, accent: Color(nativeHex: $0.element.4)) }
     }
     private var shown: [NativeSimExpense] {
