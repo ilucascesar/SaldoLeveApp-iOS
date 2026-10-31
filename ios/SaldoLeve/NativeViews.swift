@@ -44,13 +44,16 @@ struct NativeRootView: View {
                 }.padding(10).background(Color.orange.opacity(0.15)).accessibilityIdentifier("server-offline-banner")
             }
         }
-        .task { if store.isPreview { store.loadPreview() } else { await store.ensureStarted() }; NativeQuickActions.refresh(); runQuickAction() }
+        .task { if store.isPreview { store.loadPreview() } else { await store.ensureStarted() }; NativeQuickActions.refresh(); runQuickAction(); await NativeRemindersImport.shared.run(store) }
         .task(id: active) {
             guard active, !store.isPreview else { return }
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 15_000_000_000)
                 guard !Task.isCancelled else { return }
-                if store.user != nil && store.networkAvailable && !store.working && !store.locked { await store.refresh(); if store.section != .tasks { await store.finance.refresh() } }
+                if store.user != nil && store.networkAvailable && !store.working && !store.locked {
+                    await store.refresh(); if store.section != .tasks { await store.finance.refresh() }
+                    await NativeRemindersImport.shared.run(store)
+                }
             }
         }
         .onOpenURL { url in
@@ -67,7 +70,13 @@ struct NativeRootView: View {
             if phase == .background && UserDefaults.standard.bool(forKey: "nativeBiometrics") { store.locked = store.user != nil }
             if phase == .active {
                 openWidgetDestination()
-                if !store.isPreview && store.user != nil && !store.working { Task { await store.refresh(); if store.section != .tasks { await store.finance.refresh() } } }
+                if !store.isPreview && store.user != nil && !store.working {
+                    Task {
+                        await store.refresh(); if store.section != .tasks { await store.finance.refresh() }
+                        // "E aí Siri, me lembra…" lands in Lembretes; bring it in on return.
+                        await NativeRemindersImport.shared.run(store)
+                    }
+                }
             }
         }
         .alert("SaldoLeve", isPresented: Binding(get: { store.message != nil }, set: { if !$0 { store.message = nil } })) {

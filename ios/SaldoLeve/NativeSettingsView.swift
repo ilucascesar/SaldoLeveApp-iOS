@@ -1,5 +1,6 @@
 import SwiftUI
 import AppIntents
+import EventKit
 
 enum NativeSettingsPage: String, CaseIterable, Identifiable, Hashable {
     case appearance, layout, notifications, birthdays, places, widgets, siri, menus, features, account, about
@@ -42,7 +43,7 @@ enum NativeSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .birthdays: return "aniversário antecipação dias horário grupo contatos persistentes sincronizar"
         case .places: return "local localização mercado casa chegar sair geofence lembrete por local"
         case .widgets: return "tamanhos vertical maior lista conteúdo conexão código"
-        case .siri: return "siri voz falar escrever ditar atalhos criar tarefa adicionar lembrete me lembre"
+        case .siri: return "siri voz falar escrever ditar atalhos criar tarefa adicionar lembrete me lembre me lembra app lembretes importar"
         case .menus: return "ordem títulos navegação personalizar"
         case .features: return "busca erros valores organização recursos"
         case .account: return "face id código biometria aparelhos acesso login sincronizar sair"
@@ -96,7 +97,7 @@ struct NativeSettingsView: View {
                     case .birthdays: NativeRemoteSettings(platform: store.platform, page: .birthdays, embedded: true)
                     case .places: NativePlacesSettings(store: store)
                     case .widgets: NativeWidgetSettings(store: store)
-                    case .siri: NativeSiriSettings()
+                    case .siri: NativeSiriSettings(store: store)
                     case .menus: NativeRemoteSettings(platform: store.platform, page: .menus, embedded: true)
                     case .features: NativeRemoteSettings(platform: store.platform, page: .features, embedded: true)
                     case .account: NativeAccountSettings(store: store)
@@ -148,10 +149,38 @@ private struct NativeAccountSettings: View {
 }
 
 private struct NativeSiriSettings: View {
+    @ObservedObject var store: NativeStore
+    @ObservedObject private var reminders = NativeRemindersImport.shared
     @AppStorage(NativeSiriPreferences.storageKey) private var input = "speak"
+    @AppStorage(NativeRemindersImport.enabledKey) private var importReminders = false
+    @AppStorage(NativeRemindersImport.listKey) private var listID = ""
+    @Environment(\.openURL) private var openURL
     private let phrases = ["criar tarefa no SaldoLeve", "adicionar lembrete no SaldoLeve", "me lembre no SaldoLeve"]
+    private var listName: String { reminders.lists.first(where: { $0.calendarIdentifier == listID })?.title ?? "SaldoLeve" }
+    private var importToggle: Binding<Bool> {
+        Binding(get: { importReminders }, set: { on in
+            guard on else { importReminders = false; return }
+            Task {
+                guard await reminders.requestAccess() else { store.message = "Permita o acesso aos Lembretes nos Ajustes do iPhone."; return }
+                do { listID = try reminders.list().calendarIdentifier; importReminders = true; await reminders.run(store, manual: true) }
+                catch { store.report(error) }
+            }
+        })
+    }
     var body: some View {
         Form {
+            Section {
+                Toggle("Importar do app Lembretes", isOn: importToggle).accessibilityIdentifier("reminders-import")
+                if importReminders && reminders.allowed {
+                    Picker("Lista", selection: $listID) { ForEach(reminders.lists, id: \.calendarIdentifier) { Text($0.title).tag($0.calendarIdentifier) } }
+                    Button(reminders.running ? "Importando…" : "Importar agora") { Task { await reminders.run(store, manual: true) } }
+                        .disabled(reminders.running || !store.canWrite)
+                } else if importReminders {
+                    Button("Permitir acesso nos Ajustes") { if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) } }
+                }
+            } header: { Text("“E aí Siri, me lembra de…”") } footer: {
+                Text("O iOS envia “me lembra” ao app Lembretes. Quando a Siri perguntar o app, escolha Lembretes e, em Ajustes → Apps → Lembretes → Lista padrão, escolha \(listName). Ao abrir o SaldoLeve, cada lembrete pendente dessa lista vira uma tarefa com o mesmo horário e, só depois que o servidor confirmar, é marcado como concluído no Lembretes.")
+            }
             Section {
                 Picker("Responder à Siri", selection: $input) { Text("Falando").tag("speak"); Text("Escrevendo no app").tag("type") }
                     .accessibilityIdentifier("siri-input")
@@ -165,8 +194,9 @@ private struct NativeSiriSettings: View {
             Section {
                 Text("1. Toque em Criar atalho pessoal.\n2. Adicione a ação “Criar tarefa no SaldoLeve”.\n3. Dê ao atalho o nome “Criar tarefa” (repita com “Adicionar lembrete” ou “Me lembre”, se quiser).\n4. Diga “E aí Siri, criar tarefa” e responda o que lembrar.").font(.subheadline)
                 Link(destination: URL(string: "shortcuts://create-shortcut")!) { Label("Criar atalho pessoal", systemImage: "plus.square.on.square") }
-            } header: { Text("Sem dizer “SaldoLeve”") } footer: { Text("“Me lembre” sozinho pode ser atendido pelo app Lembretes da Apple; “Criar tarefa” costuma ser mais confiável.") }
+            } header: { Text("Sem dizer “SaldoLeve”") } footer: { Text("“Me lembra” sozinho vai para o app Lembretes da Apple; ative “Importar do app Lembretes” acima para trazê-lo ao SaldoLeve.") }
         }.navigationTitle("Siri e Atalhos").navigationBarTitleDisplayMode(.inline)
+            .onAppear { reminders.reload() }
     }
 }
 

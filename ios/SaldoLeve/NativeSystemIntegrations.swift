@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import AppIntents
 import CoreLocation
+import EventKit
 import UserNotifications
 
 // MARK: App icon quick actions (press and hold the SaldoLeve icon)
@@ -108,6 +109,97 @@ struct NativeAppShortcuts: AppShortcutsProvider {
             "\(.applicationName) adicionar lembrete",
             "\(.applicationName) me lembre"
         ], shortTitle: "Criar tarefa", systemImageName: "checklist")
+    }
+}
+
+// MARK: App Lembretes ("E aí Siri, me lembra de…")
+
+// iOS sends "me lembra" to Apple's Reminders (SiriKit task apps need a paid
+// developer account). Pending reminders of the chosen list become SaldoLeve
+// tasks; each reminder is completed only after the server confirmed its task,
+// so Lembretes stops alerting about it.
+@MainActor final class NativeRemindersImport: ObservableObject {
+    static let shared = NativeRemindersImport()
+    static let enabledKey = "nativeRemindersImport"
+    static let listKey = "nativeRemindersList"
+    private static let importedKey = "nativeRemindersImported"
+    let events = EKEventStore()
+    @Published var status = EKEventStore.authorizationStatus(for: .reminder)
+    @Published var lists: [EKCalendar] = []
+    @Published var running = false
+    var enabled: Bool { UserDefaults.standard.bool(forKey: Self.enabledKey) }
+    var allowed: Bool {
+        if #available(iOS 17.0, *) { return status == .fullAccess }
+        return status == .authorized
+    }
+    func requestAccess() async -> Bool {
+        if #available(iOS 17.0, *) { _ = try? await events.requestFullAccessToReminders() }
+        else { _ = try? await events.requestAccess(to: .reminder) }
+        reload()
+        return allowed
+    }
+    func reload() {
+        status = EKEventStore.authorizationStatus(for: .reminder)
+        lists = allowed ? events.calendars(for: .reminder).sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending } : []
+    }
+    // The chosen list, or a "SaldoLeve" list created on first use.
+    func list() throws -> EKCalendar {
+        if let id = UserDefaults.standard.string(forKey: Self.listKey), let calendar = events.calendar(withIdentifier: id) { return calendar }
+        let calendar: EKCalendar
+        if let existing = events.calendars(for: .reminder).first(where: { $0.title == "SaldoLeve" }) { calendar = existing }
+        else {
+            guard let source = events.defaultCalendarForNewReminders()?.source ?? events.sources.first(where: { $0.sourceType == .local }) else {
+                throw NativeFailure("Nenhuma conta disponível no app Lembretes.")
+            }
+            calendar = EKCalendar(for: .reminder, eventStore: events)
+            calendar.title = "SaldoLeve"; calendar.source = source
+            try events.saveCalendar(calendar, commit: true)
+        }
+        UserDefaults.standard.set(calendar.calendarIdentifier, forKey: Self.listKey); reload()
+        return calendar
+    }
+    static func due(_ reminder: EKReminder) -> Date? {
+        if var parts = reminder.dueDateComponents {
+            // A reminder for a day without a time is due at 9:00.
+            if parts.hour == nil { parts.hour = 9; parts.minute = 0 }
+            if let date = Calendar.current.date(from: parts) { return date }
+        }
+        return reminder.alarms?.compactMap(\.absoluteDate).min()
+    }
+    @discardableResult
+    func run(_ store: NativeStore, manual: Bool = false) async -> Int {
+        guard enabled, !running, !store.isPreview, store.user != nil, !store.locked else { return 0 }
+        reload()
+        guard allowed else { if manual { store.message = "Permita o acesso aos Lembretes nos Ajustes do iPhone." }; return 0 }
+        guard store.canWrite else { if manual { store.message = "Sem conexão com o servidor. Nenhum lembrete foi importado." }; return 0 }
+        guard let category = store.editableCategories.first?.id else { return 0 }
+        let calendar: EKCalendar
+        do { calendar = try list() } catch { if manual { store.report(error) }; return 0 }
+        running = true; defer { running = false }
+        let predicate = events.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: [calendar])
+        let pending: [EKReminder] = await withCheckedContinuation { continuation in
+            _ = events.fetchReminders(matching: predicate) { continuation.resume(returning: $0 ?? []) }
+        }
+        var imported = UserDefaults.standard.stringArray(forKey: Self.importedKey) ?? []
+        var count = 0
+        for reminder in pending.sorted(by: { ($0.creationDate ?? .distantPast) < ($1.creationDate ?? .distantPast) }) {
+            let id = reminder.calendarItemIdentifier
+            let title = (reminder.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty, !imported.contains(id) else { continue }
+            var task = NativeTask.draft(categoryID: category)
+            task.fields["title"] = .string(String(title.prefix(1)).uppercased() + String(title.dropFirst()))
+            if let due = Self.due(reminder) { task.fields["dueAt"] = .string(NativeDate.iso(due)) }
+            if let notes = reminder.notes?.trimmingCharacters(in: .whitespacesAndNewlines), !notes.isEmpty { task.fields["body"] = .string(notes) }
+            do { _ = try await store.save(task) } catch { store.report(error); break }
+            // Remembered before completing it, so a failure below never duplicates the task.
+            imported.append(id); UserDefaults.standard.set(Array(imported.suffix(300)), forKey: Self.importedKey)
+            reminder.isCompleted = true
+            try? events.save(reminder, commit: true)
+            count += 1
+        }
+        if count > 0 { store.message = count == 1 ? "1 lembrete do app Lembretes virou tarefa no SaldoLeve." : "\(count) lembretes do app Lembretes viraram tarefas no SaldoLeve." }
+        else if manual && store.message == nil { store.message = "Nenhum lembrete pendente na lista “\(calendar.title)”." }
+        return count
     }
 }
 

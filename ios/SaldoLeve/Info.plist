@@ -27,6 +27,8 @@
   <key>NSCameraUsageDescription</key><string>Fotografar comprovantes que você escolher anexar no SaldoLeve.</string>
   <key>NSPhotoLibraryUsageDescription</key><string>Selecionar imagens que você escolher anexar no SaldoLeve.</string>
   <key>NSLocationWhenInUseUsageDescription</key><string>Avisar sobre tarefas ao chegar ou sair dos locais que você salvar, como o mercado ou sua casa. Sua posição não é enviada ao servidor; somente os locais que você salvar.</string>
+  <key>NSRemindersFullAccessUsageDescription</key><string>Transformar em tarefas do SaldoLeve os lembretes pendentes da lista que você escolher (por exemplo, os criados com “E aí Siri, me lembra…”) e marcá-los como concluídos depois que o servidor confirmar.</string>
+  <key>NSRemindersUsageDescription</key><string>Transformar em tarefas do SaldoLeve os lembretes pendentes da lista que você escolher (por exemplo, os criados com “E aí Siri, me lembra…”) e marcá-los como concluídos depois que o servidor confirmar.</string>
   <key>UIApplicationShortcutItems</key><array>
     <dict><key>UIApplicationShortcutItemType</key><string>br.com.ilucascesar.saldoleve.new-task</string><key>UIApplicationShortcutItemTitle</key><string>Nova tarefa</string><key>UIApplicationShortcutItemIconSymbolName</key><string>plus.circle</string></dict>
     <dict><key>UIApplicationShortcutItemType</key><string>br.com.ilucascesar.saldoleve.pause-2h</string><key>UIApplicationShortcutItemTitle</key><string>Suspender avisos por 2 horas</string><key>UIApplicationShortcutItemIconSymbolName</key><string>bell.slash</string></dict>
