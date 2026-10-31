@@ -184,7 +184,10 @@ final class InteractionTests: XCTestCase {
         app.launchArguments = ["--ui-preview", "--preview-birthdays", "--preview-contacts"]
         app.launch()
         let entry = app.buttons["birthday-import"]
-        XCTAssertTrue(entry.waitForExistence(timeout: 20)); entry.tap()
+        XCTAssertTrue(entry.waitForExistence(timeout: 20))
+        let done = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "birthday-done-")).firstMatch
+        XCTAssertTrue(done.waitForExistence(timeout: 5), "Each birthday has a completion checkbox, like a task")
+        entry.tap()
         let load = app.buttons["contacts-load"]
         XCTAssertTrue(load.waitForExistence(timeout: 10)); load.tap()
         let review = app.switches.matching(NSPredicate(format: "label CONTAINS %@", "Contato de teste")).firstMatch
@@ -266,7 +269,11 @@ final class InteractionTests: XCTestCase {
         app.launchArguments = ["--ui-preview", "--preview-payments"]
         app.launch()
         let entry = app.buttons["Pagar / antecipar parcelas"].firstMatch
-        XCTAssertTrue(entry.waitForExistence(timeout: 20)); entry.tap()
+        let more = app.buttons["Mais opções"].firstMatch
+        XCTAssertTrue(app.descendants(matching: .any)["task-title"].firstMatch.waitForExistence(timeout: 20))
+        for _ in 0..<6 where !more.isHittable { app.swipeUp() }
+        XCTAssertTrue(more.waitForExistence(timeout: 5)); more.tap()
+        XCTAssertTrue(entry.waitForExistence(timeout: 5)); entry.tap()
         let original = app.textFields["installment-original-parcela1"]
         let paid = app.textFields["installment-paid-parcela1"]
         XCTAssertTrue(original.waitForExistence(timeout: 10)); XCTAssertTrue(paid.exists)
