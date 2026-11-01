@@ -68,7 +68,9 @@ with zipfile.ZipFile(target) as archive:
         assert b'nativeGeofenceAlerts' in archive.read(app + 'SaldoLeve'), 'Place monitoring missing'
     if tuple(map(int, main['CFBundleShortVersionString'].split('.'))) >= (2, 7, 3):
         alternates = main.get('CFBundleIcons', {}).get('CFBundleAlternateIcons', {})
-        assert {'AppIcon-' + name for name in ['Azul', 'Verde', 'Roxo', 'Rosa', 'Preto', 'Claro']} <= set(alternates), 'Alternate app icons missing'
+        icon_files = sorted({name.split('/')[-1] for name in archive.namelist() if name.startswith(app) and 'AppIcon' in name})
+        assert {'AppIcon-' + name for name in ['Azul', 'Verde', 'Roxo', 'Rosa', 'Preto', 'Claro']} <= set(alternates), \
+            'Alternate app icons missing: Info.plist icons ' + json.dumps({key: sorted(value) if isinstance(value, dict) else value for key, value in main.items() if 'Icon' in key}, default=str) + ' files ' + ', '.join(icon_files)
 print(json.dumps({'file': str(target.resolve()), 'version': main['CFBundleShortVersionString'], 'build': main['CFBundleVersion'],
                   'app': main['CFBundleIdentifier'], 'widget': extension['CFBundleIdentifier'], 'platform': 'iPhoneOS/arm64',
                   'bytes': target.stat().st_size, 'sha256': hashlib.sha256(target.read_bytes()).hexdigest()}, ensure_ascii=False))
