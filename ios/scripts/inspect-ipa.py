@@ -66,6 +66,9 @@ with zipfile.ZipFile(target) as archive:
     if tuple(map(int, main['CFBundleShortVersionString'].split('.'))) >= (2, 7, 2):
         assert main.get('NSLocationAlwaysAndWhenInUseUsageDescription'), 'Always location purpose is required'
         assert b'nativeGeofenceAlerts' in archive.read(app + 'SaldoLeve'), 'Place monitoring missing'
+    if tuple(map(int, main['CFBundleShortVersionString'].split('.'))) >= (2, 7, 3):
+        alternates = main.get('CFBundleIcons', {}).get('CFBundleAlternateIcons', {})
+        assert {'AppIcon-' + name for name in ['Azul', 'Verde', 'Roxo', 'Rosa', 'Preto', 'Claro']} <= set(alternates), 'Alternate app icons missing'
 print(json.dumps({'file': str(target.resolve()), 'version': main['CFBundleShortVersionString'], 'build': main['CFBundleVersion'],
                   'app': main['CFBundleIdentifier'], 'widget': extension['CFBundleIdentifier'], 'platform': 'iPhoneOS/arm64',
                   'bytes': target.stat().st_size, 'sha256': hashlib.sha256(target.read_bytes()).hexdigest()}, ensure_ascii=False))
