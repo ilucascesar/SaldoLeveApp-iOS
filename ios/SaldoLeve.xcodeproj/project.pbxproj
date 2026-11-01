@@ -503,6 +503,7 @@
 "TARGETED_DEVICE_FAMILY" = "1";
 "ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 "ASSETCATALOG_COMPILER_ALTERNATE_APP_ICON_NAMES" = "AppIcon-Azul AppIcon-Verde AppIcon-Roxo AppIcon-Rosa AppIcon-Preto AppIcon-Claro";
+"ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS" = "YES";
 "INFOPLIST_FILE" = "SaldoLeve/Info.plist";
 "PRODUCT_BUNDLE_IDENTIFIER" = "br.com.ilucascesar.saldoleve";
 "LD_RUNPATH_SEARCH_PATHS" = ("$(inherited)", "@executable_path/Frameworks");};
@@ -565,6 +566,7 @@
 "TARGETED_DEVICE_FAMILY" = "1";
 "ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 "ASSETCATALOG_COMPILER_ALTERNATE_APP_ICON_NAMES" = "AppIcon-Azul AppIcon-Verde AppIcon-Roxo AppIcon-Rosa AppIcon-Preto AppIcon-Claro";
+"ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS" = "YES";
 "INFOPLIST_FILE" = "SaldoLeve/Info.plist";
 "PRODUCT_BUNDLE_IDENTIFIER" = "br.com.ilucascesar.saldoleve";
 "LD_RUNPATH_SEARCH_PATHS" = ("$(inherited)", "@executable_path/Frameworks");};
