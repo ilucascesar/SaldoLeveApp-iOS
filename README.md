@@ -10,6 +10,8 @@ Marque run_ui_tests quando precisar validar a interface: a seleção atual cobre
 
 A compilação não recebe senha Apple, certificado ou perfil de provisionamento. Instale o IPA com seu instalador de sideload e sua própria conta Apple. A assinatura gratuita precisa ser renovada. O app exige uma instalação compatível do backend e um login válido nessa instalação.
 
+Na versão 2.7.3, o app abre direto nos últimos dados confirmados enquanto atualiza com o servidor; o aviso por local só é enviado para tarefas com subtarefas pendentes e lista esses itens; locais e tarefas podem ser excluídos deslizando; o mapa do local não deforma com zoom; e Configurações → Aparência permite trocar o ícone do app. O backend continua o 2.7.0.
+
 Na versão 2.7.2, os avisos ao chegar ou sair de um local funcionam com ou sem data: com a permissão “Sempre”, o iOS acorda o app a cada travessia e o aviso sai na hora, mesmo com o app fechado. O local é escolhido num mapa com marcador e raio ajustável, há simulação de chegada e saída e um histórico das detecções. Ao abrir, o app mostra “Atualizando” em vez de “Sem conexão” enquanto o servidor responde. O backend continua o 2.7.0.
 
 Na versão 2.7.1, “E aí Siri, me lembra de…” chega ao SaldoLeve pelo app Lembretes: com a importação ativa em Configurações → Siri e Atalhos, os lembretes pendentes da lista escolhida (padrão “SaldoLeve”) viram tarefas e são concluídos no Lembretes depois da confirmação do servidor. O backend continua o 2.7.0.
