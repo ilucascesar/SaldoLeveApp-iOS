@@ -68,7 +68,7 @@ struct NativeRootView: View {
             guard url.scheme == "saldoleve", ["focus", "tasks"].contains(url.host ?? "") else { return }
             pendingURL = url; openWidgetDestination()
         }
-        .onChange(of: store.loading) { _ in openWidgetDestination(); runQuickAction() }
+        .onChange(of: store.starting) { _ in openWidgetDestination(); runQuickAction() }
         .onChange(of: store.refreshing) { _ in openWidgetDestination() }
         .onChange(of: store.locked) { _ in openWidgetDestination(); runQuickAction() }
         .onChange(of: store.user?.id) { _ in openWidgetDestination() }
@@ -93,7 +93,7 @@ struct NativeRootView: View {
         } message: { Text(store.message ?? "") }
     }
     private func runQuickAction() {
-        guard let action = quickActions.pending, !store.loading, !store.locked else { return }
+        guard let action = quickActions.pending, !store.starting, !store.locked else { return }
         quickActions.pending = nil
         let time: (Date) -> String = { $0.formatted(.dateTime.weekday(.wide).hour().minute().locale(Locale(identifier: "pt_BR"))) }
         switch action {
@@ -110,7 +110,7 @@ struct NativeRootView: View {
         }
     }
     private func openWidgetDestination() {
-        guard let url = pendingURL, active, !store.loading, !store.locked, store.user != nil else { return }
+        guard let url = pendingURL, active, !store.starting, !store.locked, store.user != nil else { return }
         store.section = .tasks
         store.openedFinance = nil; store.menuOpen = false
         // Legacy widgets also enter the task list, never the old focus modal.

@@ -93,14 +93,30 @@ struct NativeLocationReminder: Equatable {
         placeID = value.text("placeId"); trigger = value.text("trigger") == "leave" ? "leave" : "arrive"
     }
     // Tasks for the same place and direction share one grouped notification.
-    struct Group: Equatable { var place: NativePlace; var trigger: String; var titles: [String]; var taskIDs: [String] }
+    // A location task works as a list (e.g. the market shopping list): it only
+    // warns while it has pending subtasks, and the alert shows those items.
+    struct Group: Equatable {
+        var place: NativePlace; var trigger: String; var titles: [String]; var taskIDs: [String]; var items: [[String]] = []
+        // One line per list with its pending items: "Mercado: arroz, leite, pão +2".
+        var summary: String {
+            func line(_ index: Int) -> String {
+                let pending = index < items.count ? items[index] : []
+                let shown = pending.prefix(6).joined(separator: ", ") + (pending.count > 6 ? " +\(pending.count - 6)" : "")
+                return pending.isEmpty ? titles[index] : titles[index] + ": " + shown
+            }
+            return titles.indices.prefix(4).map(line).joined(separator: "\n") + (titles.count > 4 ? "\n+\(titles.count - 4) tarefas" : "")
+        }
+    }
+    static func pendingItems(_ task: NativeTask) -> [String] { task.checks.filter { !$0.done && !$0.paused }.map(\.title).filter { !$0.isEmpty } }
     static func groups(_ snapshot: NativeSnapshot, places: [NativePlace], limit: Int = 12) -> [Group] {
         var result: [Group] = []
         for task in snapshot.items where task.isActive && !task.paused {
             guard let reminder = NativeLocationReminder(task.fields), let place = places.first(where: { $0.id == reminder.placeID }) else { continue }
+            let items = pendingItems(task)
+            guard !items.isEmpty else { continue }
             if let index = result.firstIndex(where: { $0.place.id == place.id && $0.trigger == reminder.trigger }) {
-                result[index].titles.append(task.title); result[index].taskIDs.append(task.id)
-            } else { result.append(Group(place: place, trigger: reminder.trigger, titles: [task.title], taskIDs: [task.id])) }
+                result[index].titles.append(task.title); result[index].taskIDs.append(task.id); result[index].items.append(items)
+            } else { result.append(Group(place: place, trigger: reminder.trigger, titles: [task.title], taskIDs: [task.id], items: [items])) }
         }
         return Array(result.sorted { $0.titles.count > $1.titles.count }.prefix(limit))
     }

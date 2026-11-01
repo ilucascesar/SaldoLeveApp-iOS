@@ -27,7 +27,6 @@ struct NativeTaskList: View {
     @State private var categoryEditor = false
     @State private var editingCategory: NativeCategory?
     @State private var history = false
-    @State private var trash: NativeTask?
     @State private var selected = Set<String>()
     @State private var selecting = false
     @State private var bulkTrash = false
@@ -80,9 +79,6 @@ struct NativeTaskList: View {
             .sheet(isPresented: $categoryEditor) { NativeCategoryEditor(store: store, original: editingCategory) }
             .sheet(isPresented: $history) { NativeGlobalHistoryView(store: store, categoryID: category) }
             .sheet(isPresented: $tools) { NativeCollectionTools(store: store, categoryID: category, items: query(includeDone: true)) }
-            .confirmationDialog("Mover para a lixeira?", isPresented: Binding(get: { trash != nil }, set: { if !$0 { trash = nil } }), titleVisibility: .visible) {
-                Button("Mover tarefa para a lixeira", role: .destructive) { if let task = trash { Task { await store.changeStatus(task, to: "trashed") } }; trash = nil }
-            } message: { Text(trash?.title ?? "") }
             .confirmationDialog("Mover as selecionadas para a lixeira?", isPresented: $bulkTrash, titleVisibility: .visible) { Button("Mover para a lixeira", role: .destructive) { bulk("trash") } }
             .alert("Salvar filtro", isPresented: $savingFilter) { TextField("Nome do filtro", text: $filterName); Button("Cancelar", role: .cancel) {}; Button("Salvar") { saveFilter() } } message: { Text("Guarda categoria, busca, etiqueta e filtro, também no site.") }
             .onAppear {
@@ -162,9 +158,10 @@ struct NativeTaskList: View {
                             NativeTaskRow(store: store, task: task, showCategory: category.isEmpty, selecting: selecting, selected: selected.contains(task.id), select: { toggleSelection(task.id) })
                                 .listRowBackground(nativePaper).listRowInsets(EdgeInsets(top: store.layout.rowPadding, leading: 10, bottom: store.layout.rowPadding, trailing: 12))
                                 .swipeActions(edge: .leading, allowsFullSwipe: false) { if task.isActive || task.isDone { Button { Task { await store.complete(task) } } label: { Label(task.isDone ? "Reabrir" : task.completionLabel, systemImage: "checkmark") }.tint(.green).disabled(!store.canEdit(task)) } }
-                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    // The trash is recoverable, so the swipe moves the task at once.
                                     if task.status == "trashed" { Button { Task { await store.changeStatus(task, to: "restore") } } label: { Label("Restaurar", systemImage: "arrow.uturn.backward") }.disabled(!store.canEdit(task)) }
-                                    else { Button(role: .destructive) { trash = task } label: { Label("Lixeira", systemImage: "trash") }.disabled(!store.canEdit(task)); if task.isActive { Button { store.openedTask = task } label: { Label("Data", systemImage: "calendar") }.tint(.orange).disabled(!store.canEdit(task)) } }
+                                    else { Button(role: .destructive) { Task { await store.changeStatus(task, to: "trashed") } } label: { Label("Lixeira", systemImage: "trash") }.disabled(!store.canEdit(task)); if task.isActive { Button { store.openedTask = task } label: { Label("Data", systemImage: "calendar") }.tint(.orange).disabled(!store.canEdit(task)) } }
                                 }
                                 .contextMenu { rowMenu(task) }
                         }.onMove { indices, destination in move(group, indices: indices, destination: destination) }.moveDisabled(sort != .manual || !store.canWrite)
@@ -221,7 +218,7 @@ struct NativeTaskList: View {
         Button { store.openedTask = task } label: { Label("Abrir tarefa", systemImage: "square.and.pencil") }
         if store.canEdit(task) {
             if task.status == "trashed" { Button("Restaurar") { Task { await store.changeStatus(task, to: "restore") } } }
-            else { Button(task.isDone ? "Reabrir" : task.completionLabel) { Task { await store.complete(task) } }; Button(task.fields.flag("pinned") ? "Desafixar" : "Fixar no início") { patch(task, key: "pinned", value: .bool(!task.fields.flag("pinned"))) }; Button("Alterar data") { store.openedTask = task }; Button("Adiar 1 dia") { Task { await store.postpone(task) } }; Button(task.status == "archived" ? "Desarquivar" : "Arquivar") { Task { await store.changeStatus(task, to: task.status == "archived" ? "todo" : "archived") } }; Button("Mover para a lixeira", role: .destructive) { trash = task } }
+            else { Button(task.isDone ? "Reabrir" : task.completionLabel) { Task { await store.complete(task) } }; Button(task.fields.flag("pinned") ? "Desafixar" : "Fixar no início") { patch(task, key: "pinned", value: .bool(!task.fields.flag("pinned"))) }; Button("Alterar data") { store.openedTask = task }; Button("Adiar 1 dia") { Task { await store.postpone(task) } }; Button(task.status == "archived" ? "Desarquivar" : "Arquivar") { Task { await store.changeStatus(task, to: task.status == "archived" ? "todo" : "archived") } }; Button("Mover para a lixeira", role: .destructive) { Task { await store.changeStatus(task, to: "trashed") } } }
         }
         Button("Selecionar") { selecting = true; toggleSelection(task.id) }
         ShareLink(item: ([task.title, task.fields.text("body")] + task.checks.map { ($0.done ? "☑ " : "☐ ") + $0.title }).joined(separator: "\n")) { Label("Compartilhar", systemImage: "square.and.arrow.up") }

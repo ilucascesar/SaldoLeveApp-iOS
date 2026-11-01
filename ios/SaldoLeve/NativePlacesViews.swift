@@ -18,7 +18,8 @@ struct NativePlacesSettings: View {
     private var places: [NativePlace] { NativePlace.list(platform.snapshot.config) }
     private var tasksByPlace: [String: Int] {
         var counts: [String: Int] = [:]
-        for task in store.snapshot.items where task.isActive { if let reminder = NativeLocationReminder(task.fields) { counts[reminder.placeID, default: 0] += 1 } }
+        // Only tasks that will warn: pending subtasks.
+        for task in store.snapshot.items where task.isActive && !NativeLocationReminder.pendingItems(task).isEmpty { if let reminder = NativeLocationReminder(task.fields) { counts[reminder.placeID, default: 0] += 1 } }
         return counts
     }
     var body: some View {
@@ -49,14 +50,13 @@ struct NativePlacesSettings: View {
                             Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
                         }
                     }.buttonStyle(.plain)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button(role: .destructive) { save(place, remove: true) } label: { Label("Excluir", systemImage: "trash") }.disabled(!platform.canWrite)
+                    }
                 }
                 Button { editing = NativePlace.fresh() } label: { Label("Adicionar local no mapa", systemImage: "plus.circle") }
                     .disabled(!platform.canWrite || places.count >= 20)
-            } header: { Text("Locais salvos") } footer: { Text("Até 20 locais. Na tarefa, toque em Local para escolher o lugar e se o aviso é ao chegar ou ao sair. Tarefas do mesmo local chegam juntas em um só aviso.") }
-            Section {
-                Text("Abra um local e use “Simular chegada” ou “Simular saída”: o aviso real das tarefas desse local chega em 5 segundos (bloqueie o iPhone para ver). “Onde estou agora” mostra se você está dentro do raio.").font(.footnote)
-                Text("Para testar a detecção de verdade, crie um local “Teste” na sua posição atual com raio de 100 m, marque uma tarefa “ao sair” e caminhe uns 300 m (um quarteirão). As detecções aparecem logo abaixo.").font(.footnote).foregroundStyle(.secondary)
-            } header: { Text("Testar sem sair de casa") }
+            } header: { Text("Locais salvos") } footer: { Text("Até 20 locais. Deslize um local para a esquerda para excluí-lo. Na tarefa, toque em Local para escolher o lugar e se o aviso é ao chegar ou ao sair. Só avisa tarefas com subtarefas pendentes, todas juntas em um só aviso.") }
             Section {
                 if geofence.log.isEmpty { Text("Nenhuma chegada ou saída registrada ainda.").foregroundStyle(.secondary) }
                 ForEach(Array(geofence.log.prefix(15).enumerated()), id: \.offset) { _, line in Text(line).font(.caption) }
@@ -162,16 +162,22 @@ struct NativePlaceEditor: View {
             }
         }
     }
+    // The circle and the marker are overlays of the map, so a circle larger than
+    // the map (deep zoom) is clipped instead of stretching the row.
     private var map: some View {
-        ZStack {
-            NativePlaceMap(center: coordinate, radius: place.radius, showsUser: location.allowed, metersPerPoint: $metersPerPoint, moved: describe)
-            if metersPerPoint > 0 {
-                let diameter = min(1600, place.radius * 2 / metersPerPoint)
-                Circle().fill(nativeBlue.opacity(0.14)).overlay(Circle().stroke(nativeBlue, lineWidth: 2)).frame(width: diameter, height: diameter).allowsHitTesting(false)
+        NativePlaceMap(center: coordinate, radius: place.radius, showsUser: location.allowed, metersPerPoint: $metersPerPoint, moved: describe)
+            .frame(maxWidth: .infinity)
+            .overlay {
+                ZStack {
+                    if metersPerPoint > 0 {
+                        let diameter = min(4000, place.radius * 2 / metersPerPoint)
+                        Circle().fill(nativeBlue.opacity(0.14)).overlay(Circle().stroke(nativeBlue, lineWidth: 2)).frame(width: diameter, height: diameter)
+                    }
+                    Image(systemName: "mappin").font(.system(size: 36, weight: .semibold)).foregroundStyle(.red).shadow(radius: 2).offset(y: -18)
+                    Circle().fill(.red).frame(width: 6, height: 6)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity).clipped().allowsHitTesting(false)
             }
-            Image(systemName: "mappin").font(.system(size: 36, weight: .semibold)).foregroundStyle(.red).shadow(radius: 2).offset(y: -18).allowsHitTesting(false)
-            Circle().fill(.red).frame(width: 6, height: 6).allowsHitTesting(false)
-        }
     }
     private var measured: (distance: Double, inside: Bool)? {
         guard measuring, let current = location.location, hasCoordinate else { return nil }
@@ -349,7 +355,7 @@ struct NativeTaskLocationSheet: View {
                     Button { creating = NativePlace.fresh() } label: { Label(working ? "Salvando local…" : "Novo local no mapa", systemImage: "plus.circle") }
                         .disabled(!store.platform.canWrite || places.count >= 20 || working)
                     if let issue { Text(issue).font(.footnote).foregroundStyle(.orange) }
-                } header: { Text("Local") } footer: { Text("O aviso se repete a cada chegada ou saída enquanto a tarefa estiver pendente. Salve a tarefa para confirmar no servidor.") }
+                } header: { Text("Local") } footer: { Text("Só avisa enquanto a tarefa tiver subtarefas pendentes, como os itens de uma lista de mercado; o aviso mostra esses itens. Sem subtarefas pendentes, nada é enviado. Salve a tarefa para confirmar no servidor.") }
                 Section {
                     Button { managing = true } label: { Label("Gerenciar locais", systemImage: "mappin.and.ellipse") }
                     if current != nil { Button("Remover lembrete por local", role: .destructive) { fields["locationReminder"] = .null } }

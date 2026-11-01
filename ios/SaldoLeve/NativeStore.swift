@@ -10,7 +10,10 @@ final class NativeStore: ObservableObject {
     @Published private(set) var taskIndex = NativeTaskIndex()
     @Published private(set) var networkAvailable = true
     private let pathMonitor = NWPathMonitor()
+    // "loading" covers the screen only when there is no saved copy to show;
+    // "starting" stays true until the first answer of the server.
     @Published var loading = true
+    @Published private(set) var starting = true
     @Published var refreshing = false
     @Published var working = false
     @Published var offline = false
@@ -122,7 +125,11 @@ final class NativeStore: ObservableObject {
             // Rewrite the legacy cache immediately, without local drafts.
             persist()
             locked = UserDefaults.standard.bool(forKey: "nativeBiometrics")
+            // The last confirmed data appears at once (read-only) while the
+            // server answers, instead of the "Preparando" screen.
+            loading = false
         }
+        defer { loading = false; starting = false }
         do {
             let session = try await api.restore()
             apply(session)
@@ -135,7 +142,6 @@ final class NativeStore: ObservableObject {
             }
             if user == nil { report(error) }
         }
-        loading = false
     }
     private func apply(_ session: NativeSession) {
         requiresPasswordChange = session.requiresPasswordChange
@@ -407,7 +413,7 @@ extension NativeStore {
         }
         if ProcessInfo.processInfo.arguments.contains("--preview-columns4") { layout.cardColumns = 4 }
         user = NativeIdentity(id: "preview", name: "Lucas", login: "preview")
-        taskIndex = NativeTaskIndex(data, userID: "preview"); snapshot = data; loading = false; offline = false; needsSync = false; locked = false; syncedAt = Date()
+        taskIndex = NativeTaskIndex(data, userID: "preview"); snapshot = data; loading = false; starting = false; offline = false; needsSync = false; locked = false; syncedAt = Date()
         if ProcessInfo.processInfo.arguments.contains("--preview-current-offline") {
             var current = project; current.fields["title"] = .string("Versão atual no iPhone"); current.fields["revision"] = .number(2)
             offline = true; needsSync = true; connectionProblem = true

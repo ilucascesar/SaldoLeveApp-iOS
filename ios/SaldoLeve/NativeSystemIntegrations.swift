@@ -234,8 +234,7 @@ struct NativeGeofenceAlert: Codable, Equatable {
     }
     static func make(_ group: NativeLocationReminder.Group, preferences: NativeNotificationPreferences) -> NativeGeofenceAlert {
         let verb = group.trigger == "leave" ? "Ao sair de " : "Ao chegar em "
-        let titles = group.titles
-        let body = titles.count == 1 ? titles[0] : "\(titles.count) tarefas: " + titles.prefix(4).joined(separator: ", ") + (titles.count > 4 ? "…" : "")
+        let body = group.summary
         return NativeGeofenceAlert(place: group.place.name, title: preferences.showDetails ? verb + group.place.name : "SaldoLeve",
                                    body: preferences.showDetails ? body : "Você tem um lembrete por local. Abra o app para consultar.",
                                    taskID: group.taskIDs.count == 1 ? group.taskIDs[0] : "", sound: preferences.sound)
@@ -335,8 +334,8 @@ struct NativeGeofenceAlert: Codable, Equatable {
         }
         let content: NativeGeofenceAlert
         if let alert { content = alert }
-        else if simulated { content = NativeGeofenceAlert(place: name, title: (trigger == "leave" ? "Ao sair de " : "Ao chegar em ") + name, body: "Teste: nenhuma tarefa pendente usa este aviso agora.", taskID: "", sound: true) }
-        else { let result = event + " · nenhuma tarefa pendente"; note(result); return result }
+        else if simulated { content = NativeGeofenceAlert(place: name, title: (trigger == "leave" ? "Ao sair de " : "Ao chegar em ") + name, body: "Teste: nenhuma tarefa deste local tem subtarefas pendentes, então um aviso real não seria enviado.", taskID: "", sound: true) }
+        else { let result = event + " · nenhuma subtarefa pendente, sem aviso"; note(result); return result }
         do {
             try await center.add(UNNotificationRequest(identifier: "sl-location-event-" + key + (simulated ? "-test" : ""), content: content.content,
                                                        trigger: simulated ? UNTimeIntervalNotificationTrigger(timeInterval: 5, repeats: false) : nil))

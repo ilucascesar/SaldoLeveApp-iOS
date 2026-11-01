@@ -37,7 +37,7 @@ enum NativeSettingsPage: String, CaseIterable, Identifiable, Hashable {
     }
     var keywords: String {
         switch self {
-        case .appearance: return "tema claro escuro modo cor"
+        case .appearance: return "tema claro escuro modo cor ícone logo logotipo"
         case .layout: return "cards colunas despesas visão geral tarefas fonte texto tamanho abas filtros"
         case .notifications: return "avisos lembretes som horário badge ícone vencimentos suspender pausar"
         case .birthdays: return "aniversário antecipação dias horário grupo contatos persistentes sincronizar"
@@ -120,7 +120,46 @@ private struct NativeAppearanceSettings: View {
                     Task { do { _ = try await store.mutate("org_preferences", preferences) } catch { store.report(error) } }
                 })) { Text("Azul").tag("blue"); Text("Verde").tag("green"); Text("Roxo").tag("purple"); Text("Rosa").tag("rose"); Text("Âmbar").tag("amber"); Text("Escuro").tag("dark") }.disabled(!store.canWrite)
             }
+            NativeAppIconPicker()
         }.navigationTitle("Aparência e cores").navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// The Home Screen icon (logo) of this iPhone. iOS only switches between icons
+// shipped in the app (Assets: AppIcon-<name>) and confirms with its own alert.
+private struct NativeAppIconPicker: View {
+    struct Option: Identifiable { var name: String?; var title: String; var index: Int; var id: String { title } }
+    // Same order as the strip in Assets (IconPreviews), one square per icon.
+    static let options = ["Original", "Azul", "Verde", "Roxo", "Rosa", "Preto", "Claro"].enumerated().map { Option(name: $0.offset == 0 ? nil : "AppIcon-" + $0.element, title: $0.element, index: $0.offset) }
+    @State private var current = UIApplication.shared.alternateIconName
+    @State private var issue: String?
+    var body: some View {
+        Section {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 70), spacing: 12)], spacing: 14) {
+                ForEach(Self.options) { option in
+                    let selected = current == option.name
+                    Button { choose(option.name) } label: {
+                        VStack(spacing: 6) {
+                            Image("IconPreviews").resizable().frame(width: 58 * CGFloat(Self.options.count), height: 58).offset(x: -58 * CGFloat(option.index))
+                                .frame(width: 58, height: 58, alignment: .leading)
+                                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(selected ? nativeBlue : Color.secondary.opacity(0.25), lineWidth: selected ? 3 : 1))
+                            Text(option.title).font(.caption).foregroundStyle(selected ? nativeBlue : Color.primary)
+                        }
+                    }.buttonStyle(.plain).accessibilityLabel("Ícone " + option.title).accessibilityAddTraits(selected ? .isSelected : [])
+                }
+            }.padding(.vertical, 6)
+            if let issue { Text(issue).font(.footnote).foregroundStyle(.orange) }
+        } header: { Text("Ícone do app") } footer: { Text("Muda o ícone do SaldoLeve na Tela de Início deste iPhone. O iOS confirma a troca com um aviso.") }
+    }
+    private func choose(_ name: String?) {
+        guard name != current else { return }
+        guard UIApplication.shared.supportsAlternateIcons else { issue = "Este iPhone não permite trocar o ícone."; return }
+        UIApplication.shared.setAlternateIconName(name) { error in
+            DispatchQueue.main.async {
+                if let error { issue = "Não foi possível trocar o ícone: " + error.localizedDescription } else { current = name; issue = nil }
+            }
+        }
     }
 }
 
