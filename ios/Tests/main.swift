@@ -316,8 +316,19 @@ var market = sample("31", nil); market.fields["locationReminder"] = .object(["pl
 var milk = sample("32", nil); milk.fields["locationReminder"] = .object(["placeId": .string("p1"), "trigger": .string("arrive")])
 var door = sample("33", nil); door.fields["locationReminder"] = .object(["placeId": .string("p1"), "trigger": .string("leave")])
 var unknownPlace = sample("34", nil); unknownPlace.fields["locationReminder"] = .object(["placeId": .string("missing"), "trigger": .string("arrive")])
-var placeSnapshot = NativeSnapshot(); placeSnapshot.items = [market, milk, door, unknownPlace]
+var emptyList = sample("35", nil); emptyList.fields["locationReminder"] = .object(["placeId": .string("p1"), "trigger": .string("arrive")])
+var boughtList = sample("36", nil); boughtList.fields["locationReminder"] = .object(["placeId": .string("p1"), "trigger": .string("arrive")])
+boughtList.fields["checklist"] = .array([.object(["id": .string("b1"), "text": .string("Café"), "done": .bool(true)])])
+func withList(_ task: NativeTask, _ item: String) -> NativeTask {
+    var copy = task
+    copy.fields["checklist"] = .array([.object(["id": .string("i" + task.id), "text": .string(item), "done": .bool(false)]), .object(["id": .string("d" + task.id), "text": .string("Feito"), "done": .bool(true)])])
+    return copy
+}
+market = withList(market, "Arroz"); milk = withList(milk, "Leite"); door = withList(door, "Chave"); unknownPlace = withList(unknownPlace, "Pão")
+var placeSnapshot = NativeSnapshot(); placeSnapshot.items = [market, milk, door, unknownPlace, emptyList, boughtList]
 let placeGroups = NativeLocationReminder.groups(placeSnapshot, places: [NativePlace(["id": .string("p1"), "name": .string("Mercado"), "latitude": .number(-23.55), "longitude": .number(-46.63), "radius": .number(50)])])
 check(placeGroups.count == 2 && placeGroups[0].taskIDs == ["31", "32"] && placeGroups[0].trigger == "arrive" && placeGroups[0].place.radius == 100, "Tasks for the same place and direction share one grouped alert")
+check(placeGroups[0].items == [["Arroz"], ["Leite"]], "Only pending subtasks are listed; tasks without pending subtasks do not warn")
+check(placeGroups[0].summary.contains("Arroz") && !placeGroups[0].summary.contains("Feito"), "The location alert shows the pending items")
 check(NativePlace.list(["places": .array([.object(["id": .string("z"), "name": .string("Sem coordenadas")])])]).isEmpty, "Places without coordinates are ignored")
 print("Location reminders: grouped alerts, unknown places and invalid coordinates passed.")
