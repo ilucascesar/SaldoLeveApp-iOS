@@ -1,5 +1,10 @@
 import Foundation
 
+struct NativeInstallmentSelection: Identifiable {
+    let id = UUID()
+    let checkID: String?
+}
+
 struct NativeInstallmentDraft {
     var selected = Set<String>()
     var originals: [String: String] = [:]
@@ -12,7 +17,8 @@ struct NativeInstallmentDraft {
             let value = check.fields["amountCents"]?.number.map { NativeFinanceFormat.input($0 / 100) } ?? ""
             originals[check.id] = value; paid[check.id] = value
         }
-        if let id = checkID, pending.contains(where: { $0.id == id }) { selected.insert(id) }
+        // An explicit row must never silently become the next pending row.
+        if let id = checkID { if pending.contains(where: { $0.id == id }) { selected.insert(id) } }
         else if let first = pending.first { selected.insert(first.id) }
     }
     mutating func setOriginal(_ value: String, id: String) {

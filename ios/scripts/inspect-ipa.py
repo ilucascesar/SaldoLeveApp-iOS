@@ -35,7 +35,8 @@ with zipfile.ZipFile(target) as archive:
             position += length
         assert platform == 2, 'Simulator or non-iOS executable in IPA'
         config = json.loads(archive.read(prefix + 'config.json'))
-        assert config['serverURL'] == 'https://tools.ilucas.com.br/SaldoLeveApp/sistema.php'
+        expected_path = 'SaldoLeve' if tuple(map(int, main['CFBundleShortVersionString'].split('.'))) >= (2, 7, 6) else 'SaldoLeveApp'
+        assert config['serverURL'] == f'https://tools.ilucas.com.br/{expected_path}/sistema.php'
     assert b'--ui-preview' not in archive.read(app + 'SaldoLeve'), 'Debug fixture enabled in Release'
     assert 'Cartão principal'.encode() not in archive.read(app + 'SaldoLeve'), 'Synthetic finance fixtures in Release'
     settings = plistlib.loads(archive.read(app + 'Settings.bundle/Root.plist'))
