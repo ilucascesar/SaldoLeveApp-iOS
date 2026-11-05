@@ -39,14 +39,14 @@ enum NativeSettingsPage: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .appearance: return "tema claro escuro modo cor ícone logo logotipo"
         case .layout: return "cards colunas despesas visão geral tarefas fonte texto tamanho abas filtros"
-        case .notifications: return "avisos lembretes som horário badge ícone vencimentos suspender pausar"
+        case .notifications: return "avisos lembretes avulsos mensagem recorrência repetição som horário badge ícone vencimentos suspender pausar"
         case .birthdays: return "aniversário antecipação dias horário grupo contatos persistentes sincronizar"
         case .places: return "local localização mercado casa chegar sair geofence lembrete por local"
         case .widgets: return "tamanhos vertical maior lista conteúdo conexão código"
         case .siri: return "siri voz falar escrever ditar atalhos criar tarefa adicionar lembrete me lembre me lembra app lembretes importar"
         case .menus: return "ordem títulos navegação personalizar"
         case .features: return "busca erros valores organização recursos"
-        case .account: return "face id código biometria aparelhos acesso login sincronizar sair"
+        case .account: return "face id código biometria aparelhos acesso login senha trocar usuários criar contas administrador sincronizar sair"
         case .about: return "iphone ios versão servidor web permissões"
         }
     }
