@@ -63,14 +63,21 @@ enum NativeStandaloneReminderPlan {
                 if added == 8 || record.text("recurrence") == "once" { break }
                 let repeatKind = record.text("recurrence")
                 guard ["daily", "weekly", "monthly", "yearly"].contains(repeatKind) else { break }
-                let component: Calendar.Component = repeatKind == "daily" ? .day : repeatKind == "weekly" ? .weekOfYear : repeatKind == "yearly" ? .year : .month
-                // Start from day 1 so January 31 does not jump past February.
-                let base = repeatKind == "monthly" || repeatKind == "yearly" ? calendar.date(bySetting: .day, value: 1, of: date)! : date
-                guard var next = calendar.date(byAdding: component, value: 1, to: base) else { break }
+                var next: Date
                 if repeatKind == "monthly" || repeatKind == "yearly" {
-                    if repeatKind == "yearly" { next = calendar.date(bySetting: .month, value: month, of: next) ?? next }
-                    next = calendar.date(bySetting: .day, value: min(anchor, calendar.range(of: .day, in: .month, for: next)!.count), of: next) ?? next
-                    next = calendar.date(bySettingHour: hour, minute: minute, second: second, of: next) ?? next
+                    var parts = calendar.dateComponents([.year, .month], from: date)
+                    parts.day = 1; parts.hour = 12
+                    guard let base = calendar.date(from: parts), let advanced = calendar.date(byAdding: repeatKind == "yearly" ? .year : .month, value: 1, to: base) else { break }
+                    parts = calendar.dateComponents([.year, .month], from: advanced)
+                    if repeatKind == "yearly" { parts.month = month }
+                    parts.day = 1; parts.hour = 12
+                    guard let first = calendar.date(from: parts), let range = calendar.range(of: .day, in: .month, for: first) else { break }
+                    parts.day = min(anchor, range.count); parts.hour = hour; parts.minute = minute; parts.second = second
+                    guard let occurrence = calendar.date(from: parts) else { break }
+                    next = occurrence
+                } else {
+                    guard let occurrence = calendar.date(byAdding: repeatKind == "weekly" ? .weekOfYear : .day, value: 1, to: date) else { break }
+                    next = occurrence
                 }
                 date = next
             }

@@ -366,6 +366,7 @@ check(partialPerson.partial && partialPerson.label == "Parcial" && partialPerson
 let standaloneNow = NativeDate.parse("2027-01-01T12:00:00Z")!
 let standaloneRecord: JSONObject = ["id": .string("7"), "title": .string("Ligar"), "body": .string("Mensagem"), "scheduledAt": .string("2027-01-31T12:00:00Z"), "timezone": .string("America/Sao_Paulo"), "recurrence": .string("monthly"), "status": .string("active")]
 let standalonePlan = NativeStandaloneReminderPlan.build([standaloneRecord], now: standaloneNow, preferences: .init())
+print("Standalone monthly dates: " + standalonePlan.prefix(3).map { NativeDate.iso($0.date) }.joined(separator: ", "))
 check(standalonePlan.count == 8 && standalonePlan[1].date == NativeDate.parse("2027-02-28T12:00:00Z") && standalonePlan[2].date == NativeDate.parse("2027-03-31T12:00:00Z"), "Standalone monthly reminders preserve day 31 through short months")
 check(standalonePlan[0].taskID == "reminder:7" && standalonePlan[0].body == "Mensagem", "Standalone notification opens its own reminder and preserves its message")
 var cancelledStandalone = standaloneRecord; cancelledStandalone["status"] = .string("cancelled")

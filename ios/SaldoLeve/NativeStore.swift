@@ -171,7 +171,7 @@ final class NativeStore: ObservableObject {
         guard canWrite, let identity = user else { throw NativeFailure("Conecte-se ao servidor antes de trocar a senha.") }
         working = true; defer { working = false }
         _ = try await api.post(action: "change_password", body: ["current": .string(current), "new": .string(new), "confirm": .string(confirm)])
-        do { let session = try await api.login(user: identity.login, password: new); apply(session); await refresh() }
+        do { let session = try await api.login(user: identity.login, password: new, changingPassword: false); apply(session); await refresh() }
         catch { api.clearSession(forgetDevice: true); user = nil; message = "Senha alterada. Entre novamente com a nova senha." }
     }
     func duplicate(_ source: NativeTask) async {
