@@ -38,7 +38,7 @@ struct NativeExpenseCardPayment {
     init(_ data: NativeFinanceSnapshot, id: String) {
         let progress = data.active.record("paymentProgress").record(id)
         total = max(0, Int((data.expenseCalculation(id).decimal("integral") * 100).rounded()))
-        let changed = data.active.record("paymentChanges").record(id).decimal("difference") > 0.004
+        let changed = !data.active.record("paymentChanges").record(id).isEmpty
         pending = progress.isEmpty ? (data.paid(id) && !changed ? 0 : total) : max(0, progress.integer("pendingCents"))
         paid = progress.isEmpty ? max(0, total - pending) : max(0, progress.integer("paidCents"))
         complete = total > 0 && pending == 0 && !changed && (progress.isEmpty ? data.paid(id) : progress.flag("complete"))
@@ -52,7 +52,8 @@ enum NativeStandaloneReminderPlan {
         for record in records where record.text("status") == "active" {
             guard var date = NativeDate.parse(record.text("scheduledAt")) else { continue }
             var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: record.text("timezone")) ?? TimeZone(identifier: "America/Sao_Paulo")!
-            let anchor = calendar.component(.day, from: date), month = calendar.component(.month, from: date)
+            let anchor = (1...31).contains(record.integer("anchorDay")) ? record.integer("anchorDay") : calendar.component(.day, from: date)
+            let month = (1...12).contains(record.integer("anchorMonth")) ? record.integer("anchorMonth") : calendar.component(.month, from: date)
             let hour = calendar.component(.hour, from: date), minute = calendar.component(.minute, from: date), second = calendar.component(.second, from: date)
             var added = 0, seen = Set<Date>()
             for _ in 0..<2000 {
