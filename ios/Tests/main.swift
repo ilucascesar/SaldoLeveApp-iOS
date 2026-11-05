@@ -343,3 +343,31 @@ check(placeGroups[0].items == [["Arroz"], ["Leite"]], "Only pending subtasks are
 check(placeGroups[0].summary.contains("Arroz") && !placeGroups[0].summary.contains("Feito"), "The location alert shows the pending items")
 check(NativePlace.list(["places": .array([.object(["id": .string("z"), "name": .string("Sem coordenadas")])])]).isEmpty, "Places without coordinates are ignored")
 print("Location reminders: grouped alerts, unknown places and invalid coordinates passed.")
+
+// 2.8: copying never carries a previous payment or its completion identity.
+var copySource = NativeTask.draft(categoryID: "1")
+copySource.fields.merge(["id": .string("44"), "revision": .number(7), "title": .string("Aluguéis"), "moneyMode": .string("receive"), "status": .string("done"), "cycleNumber": .number(5), "pausedUntil": .string("2030-01-01T12:00:00Z"), "checklist": .array([.object(["id": .string("original-check"), "text": .string("Primavera"), "done": .bool(true), "amountCents": .number(90000), "paidAmountCents": .number(85000), "completedCount": .number(3), "remindAt": .string("2027-01-15T12:00:00Z")])])]) { _, new in new }
+let copiedTask = NativeTaskCopy.make(copySource)
+check(copiedTask.id.isEmpty && copiedTask.title == "Aluguéis (cópia)" && copiedTask.status == "todo", "A duplicate is a new pending task in the same category")
+check(copiedTask.checks[0].id != "original-check" && !copiedTask.checks[0].done && copiedTask.checks[0].fields["paidAmountCents"] == .null && copiedTask.checks[0].fields["completedCount"] == nil, "Copy does not carry payments or historic completion metadata")
+check(copiedTask.checks[0].fields["amountCents"]?.number == 90000 && copySource.checks[0].done, "Copy preserves original amount and does not change the source")
+func featureCard(_ progress: JSONObject, total: Double = 1000) -> NativeExpenseCardPayment {
+    let snapshot = NativeFinanceSnapshot(["user": .object(["activeMonth": .string("2027-01")]), "calc": .object(["months": .object(["2027-01": .object(["expenses": .object(["4": .object(["integral": .number(total)])])])]), "active": .object(["paymentProgress": .object(["4": .object(progress)])])])])
+    return NativeExpenseCardPayment(snapshot, id: "4")
+}
+var featureProgress: JSONObject = ["ledger": .bool(true), "complete": .bool(false), "paidCents": .number(50000), "pendingCents": .number(50000), "participants": .array([.object(["id": .string("1"), "name": .string("Lucas"), "dueCents": .number(50000), "paidCents": .number(50000), "pendingCents": .number(0)]), .object(["id": .string("2"), "name": .string("Maria"), "dueCents": .number(50000), "paidCents": .number(0), "pendingCents": .number(50000)])])]
+let halfCard = featureCard(featureProgress)
+check(!halfCard.complete && halfCard.settledCount == 1 && halfCard.peopleCount == 2 && halfCard.fraction == 0.5, "One paid participant never stamps the whole shared expense PAGO")
+featureProgress["complete"] = .bool(true); featureProgress["pendingCents"] = .number(0); featureProgress["paidCents"] = .number(100000)
+check(featureCard(featureProgress).complete && featureCard(featureProgress).fraction == 1, "100 percent paid stamps the expense")
+check(!featureCard(featureProgress, total: 0).complete, "An empty zero-value expense is never marked paid")
+let partialPerson = NativeParticipantPayment(fields: ["id": .string("3"), "name": .string("Ana Souza"), "dueCents": .number(50000), "paidCents": .number(10000), "pendingCents": .number(40000)])
+check(partialPerson.partial && partialPerson.label == "Parcial" && partialPerson.shortName == "Ana", "Partial payments have their own visible state")
+let standaloneNow = NativeDate.parse("2027-01-01T12:00:00Z")!
+let standaloneRecord: JSONObject = ["id": .string("7"), "title": .string("Ligar"), "body": .string("Mensagem"), "scheduledAt": .string("2027-01-31T12:00:00Z"), "timezone": .string("America/Sao_Paulo"), "recurrence": .string("monthly"), "status": .string("active")]
+let standalonePlan = NativeStandaloneReminderPlan.build([standaloneRecord], now: standaloneNow, preferences: .init())
+check(standalonePlan.count == 8 && standalonePlan[1].date == NativeDate.parse("2027-02-28T12:00:00Z") && standalonePlan[2].date == NativeDate.parse("2027-03-31T12:00:00Z"), "Standalone monthly reminders preserve day 31 through short months")
+check(standalonePlan[0].taskID == "reminder:7" && standalonePlan[0].body == "Mensagem", "Standalone notification opens its own reminder and preserves its message")
+var cancelledStandalone = standaloneRecord; cancelledStandalone["status"] = .string("cancelled")
+check(NativeStandaloneReminderPlan.build([cancelledStandalone], now: standaloneNow, preferences: .init()).isEmpty, "Cancelled standalone reminders are not scheduled")
+print("2.8: task copies, exact shared payment status, partial and zero-value cards, standalone recurrence and cancellation passed.")

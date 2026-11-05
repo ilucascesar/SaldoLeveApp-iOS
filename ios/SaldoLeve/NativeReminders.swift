@@ -48,7 +48,9 @@ final class NativeReminders: NSObject, UNUserNotificationCenterDelegate {
             try? await center.add(UNNotificationRequest(identifier: request.identifier, content: request.content, trigger: UNTimeIntervalNotificationTrigger(timeInterval: max(1, until.timeIntervalSinceNow), repeats: false)))
         }
     }
-    func update(_ snapshot: NativeSnapshot, expenseRecords: [JSONObject]? = nil, birthdays: [NativeBirthday]? = nil, places: [NativePlace]? = nil) {
+    private var generalRecords: [JSONObject] = []
+    func update(_ snapshot: NativeSnapshot, expenseRecords: [JSONObject]? = nil, birthdays: [NativeBirthday]? = nil, places: [NativePlace]? = nil, generalRecords: [JSONObject]? = nil) {
+        if let generalRecords { self.generalRecords = generalRecords }
         if let expenseRecords { self.expenseRecords = expenseRecords }
         if let birthdays { self.birthdays = birthdays }
         if let places { self.places = places }
@@ -73,12 +75,12 @@ final class NativeReminders: NSObject, UNUserNotificationCenterDelegate {
             if self.places != nil, !Task.isCancelled { await NativeGeofence.shared.apply(locations, preferences: preferences) }
             guard authorized, !Task.isCancelled else { return }
             let now = Date()
-            let expenses = self.expenseRecords, birthdayRecords = self.birthdays ?? []
+            let expenses = self.expenseRecords, birthdayRecords = self.birthdays ?? [], general = self.generalRecords
             // With only "Durante o uso", location alerts share the iOS limit of 64 pending requests.
             let pause = NativeAlertPause.until(now: now)
             let computation = await Task.detached(priority: .utility) {
                 let dueDates = snapshot.items.filter { $0.isActive && !$0.paused }.compactMap(\.nextDate).sorted()
-                let all = NativeAlertPause.filter(NativeReminderPlan.build(snapshot, now: now, preferences: preferences) + NativeExpenseReminderPlan.build(expenses, now: now, preferences: preferences), until: pause)
+                let all = NativeAlertPause.filter(NativeReminderPlan.build(snapshot, now: now, preferences: preferences) + NativeExpenseReminderPlan.build(expenses, now: now, preferences: preferences) + NativeStandaloneReminderPlan.build(general, now: now, preferences: preferences), until: pause)
                 let birthdayAlarms = Array(NativeAlertPause.filter(NativeBirthdayPlan.build(birthdayRecords, now: now, preferences: preferences), until: pause).prefix(20))
                 let otherAlarms = Array(all.sorted(by: { $0.date == $1.date ? $0.id < $1.id : $0.date < $1.date }).prefix(max(0, 60 - locations.count - birthdayAlarms.count - preservedBirthdayCount)))
                 let alarms = (birthdayAlarms + otherAlarms).sorted { $0.date == $1.date ? $0.id < $1.id : $0.date < $1.date }
@@ -115,7 +117,7 @@ final class NativeReminders: NSObject, UNUserNotificationCenterDelegate {
     }
     func clear(disable: Bool = true) {
         if disable { UserDefaults.standard.set(false, forKey: "nativeLocalReminders") }
-        update(NativeSnapshot(), expenseRecords: [], birthdays: [], places: [])
+        update(NativeSnapshot(), expenseRecords: [], birthdays: [], places: [], generalRecords: [])
         center.removeAllDeliveredNotifications()
         UIApplication.shared.applicationIconBadgeNumber = 0
     }

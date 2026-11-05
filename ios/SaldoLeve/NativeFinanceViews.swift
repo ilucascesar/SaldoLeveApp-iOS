@@ -11,6 +11,7 @@ struct NativeExpenseCard: View {
     let open: () -> Void
     private var data: NativeFinanceSnapshot { finance.snapshot }
     private var expense: JSONObject { data.expense(expenseID) }
+    private var paymentStatus: NativeExpenseCardPayment { .init(data, id: expenseID) }
     var body: some View {
         HStack(spacing: 13) {
             RoundedRectangle(cornerRadius: 3).fill(Color(nativeHex: expense.text("accent"))).frame(width: 4)
@@ -20,13 +21,15 @@ struct NativeExpenseCard: View {
                     Text(NativeFinanceFormat.expenseType(expense.text("type")) + (expense["active"] == .bool(false) ? " · Desativada" : "")).font(.caption).foregroundStyle(.secondary)
                     Text(NativeFinanceFormat.money(data.expenseCalculation(expenseID).decimal("integral"))).font(.system(size: 24, weight: .bold, design: .rounded))
                     if expense.flag("shared") { Text("Sua parte: \(NativeFinanceFormat.money(data.expenseCalculation(expenseID).decimal("considered"))) · \(expense.decimal("percent").formatted())%").font(.caption).foregroundStyle(.secondary) }
+                    if paymentStatus.complete { NativePaidStamp() }
+                    if expense.flag("shared") { NativeExpensePaymentStatus(status: paymentStatus) }
                     if !data.active.record("paymentChanges").record(expenseID).isEmpty { Label("Valor alterado após pagamento", systemImage: "exclamationmark.circle").font(.caption).foregroundStyle(.orange) }
                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain)
             Button { if expense.flag("shared") { open() } else { Task { do { _ = try await finance.save("toggle_payment", ["expenseId": .string(expenseID), "paid": .bool(!data.paid(expenseID))]) } catch { finance.parent.report(error) } } } } label: {
                 VStack(spacing: 6) { Image(systemName: data.paid(expenseID) ? "checkmark.circle.fill" : "circle").font(.system(size: 25)); Text(data.paid(expenseID) ? "Paga" : expense.flag("shared") ? "Pagamentos" : "Marcar paga").font(.system(size: 10, weight: .semibold)) }.foregroundStyle(data.paid(expenseID) ? Color.green : nativeBlue).frame(width: 72, height: 65)
             }.buttonStyle(.borderless).disabled(!finance.canWrite || (!data.paid(expenseID) && data.expenseCalculation(expenseID).decimal("integral") <= 0))
-        }.padding(.vertical, 5)
+        }.padding(8).background(paymentStatus.complete ? Color.green.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 struct NativeFinanceTransactionRow: View {

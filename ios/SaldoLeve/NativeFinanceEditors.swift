@@ -26,6 +26,7 @@ struct NativeFinanceModal: View {
         case "reminders": NativeExpenseReminders(finance: finance, expenseID: route.fields.text("id"))
         case "payments": NativeExpensePayments(finance: finance, expenseID: route.fields.text("id"))
         case "previewNotifications": NativeSettingsView(store: finance.parent, initialPage: .notifications)
+        case "generalReminders": NavigationStack { NativeStandaloneReminders(store: finance.parent).toolbar { Button("Fechar") { dismiss() } } }
         case "export": NativeShareSheet(items: [URL(fileURLWithPath: route.fields.text("path"))])
         default: NativeFinanceActionForm(finance: finance, route: route)
         }

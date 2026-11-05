@@ -169,6 +169,7 @@ struct NativeTaskEditor: View {
                     }
                     if !task.id.isEmpty {
                         Button("Comentários") { showComments.toggle() }
+                        Button("Duplicar tarefa") { Task { if await commit(closing: false) { await store.duplicate(task) } } }.disabled(saving || !store.canWrite)
                         ShareLink(item: ([task.title, task.fields.text("body")] + task.checks.map { ($0.done ? "☑ " : "☐ ") + $0.title }).joined(separator: "\n")) { Label("Compartilhar tarefa", systemImage: "square.and.arrow.up") }
                         Button(task.status == "archived" ? "Desarquivar tarefa" : "Arquivar tarefa") { task.fields["status"] = .string(task.status == "archived" ? "todo" : "archived"); save() }.disabled(saving)
                         Button("Mover para a lixeira", role: .destructive) { trashConfirm = true }.disabled(saving)

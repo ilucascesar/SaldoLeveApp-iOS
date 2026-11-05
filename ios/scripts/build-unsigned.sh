@@ -13,7 +13,7 @@ if [ "${SDK_VERSION%%.*}" -lt 27 ]; then
 fi
 plutil -lint SaldoLeve/Info.plist SaldoLeve/Settings.bundle/Root.plist SaldoLeveWidgets/Info.plist SaldoLeve/PrivacyInfo.xcprivacy SaldoLeve.xcodeproj/project.pbxproj
 mkdir -p "$BUILD_ROOT"
-swiftc SaldoLeve/SiteAddress.swift SaldoLeve/NativeNotificationPreferences.swift SaldoLeve/NativeLayoutPreferences.swift SaldoLeve/NativeModels.swift SaldoLeve/NativeTaskMerge.swift SaldoLeve/NativeTaskIndex.swift SaldoLeve/NativeFinanceModels.swift SaldoLeve/NativePlatformModels.swift SaldoLeve/NativeInstallmentDraft.swift SaldoLeveWidgets/WidgetModels.swift Tests/main.swift -o "$BUILD_ROOT/address-tests"
+swiftc SaldoLeve/SiteAddress.swift SaldoLeve/NativeNotificationPreferences.swift SaldoLeve/NativeLayoutPreferences.swift SaldoLeve/NativeModels.swift SaldoLeve/NativeTaskMerge.swift SaldoLeve/NativeTaskIndex.swift SaldoLeve/NativeFinanceModels.swift SaldoLeve/NativePlatformModels.swift SaldoLeve/NativeSharingModels.swift SaldoLeve/NativeInstallmentDraft.swift SaldoLeveWidgets/WidgetModels.swift Tests/main.swift -o "$BUILD_ROOT/address-tests"
 "$BUILD_ROOT/address-tests"
 swiftc -parse-as-library SaldoLeve/NativeNotificationPreferences.swift SaldoLeve/NativeModels.swift SaldoLeve/NativeTaskMerge.swift SaldoLeve/NativeTaskIndex.swift Tests/sync.swift -o "$BUILD_ROOT/sync-tests"
 "$BUILD_ROOT/sync-tests"

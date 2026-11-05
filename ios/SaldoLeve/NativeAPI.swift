@@ -50,6 +50,7 @@ final class NativeAPI {
     var reviewWarnings: (([JSONObject]) async -> Bool)?
     private var pendingOperations: [String: String] = [:]
     private var acceptedReviews: [String: String] = [:]
+    private var acceptedDuplicates = Set<String>()
     init(address: SiteAddress) {
         self.address = address
         storageID = SHA256.hash(data: Data(address.home.deletingLastPathComponent().absoluteString.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -145,7 +146,7 @@ final class NativeAPI {
         clearSession(forgetDevice: true)
     }
     func clearSession(forgetDevice: Bool = false) {
-        cookie = nil; csrf = ""; loginCsrf = ""; pendingOperations = [:]; acceptedReviews = [:]
+        cookie = nil; csrf = ""; loginCsrf = ""; pendingOperations = [:]; acceptedReviews = [:]; acceptedDuplicates = []
         NativeKeychain.write(nil, account: "session-" + storageID)
         if forgetDevice { NativeKeychain.write(nil, account: "device-" + storageID) }
     }
@@ -172,6 +173,15 @@ final class NativeAPI {
         var fingerprintBody = body; fingerprintBody.removeValue(forKey: "_smartConfirmation")
         let encoded = try encoder.encode(fingerprintBody)
         let fingerprint = action + "|" + SHA256.hash(data: encoded).map { String(format: "%02x", $0) }.joined()
+        if action == "org_save_item", ["pay", "receive"].contains(body.text("moneyMode")), !acceptedDuplicates.contains(fingerprint) {
+            let duplicates = try await post(action: "org_duplicates", body: body)
+            let matches = duplicates.objects("matches")
+            if !matches.isEmpty {
+                let names = matches.map { $0.text("text") + ($0["amount"]?.number.map { " · " + NativeDate.money($0) } ?? "") }.joined(separator: "\n")
+                guard await NativeWarningPresenter.decide(title: "Possível cobrança duplicada", message: "Já existe algo parecido em nome, valor e vencimento:\n\n" + names + "\n\nConfira antes de continuar.", accept: "Salvar mesmo assim") else { throw NativeFailure("Confira a possível duplicidade antes de salvar.", status: 499) }
+                acceptedDuplicates.insert(fingerprint)
+            }
+        }
         let watched = ["org_save_item", "org_adjust_check_values", "org_edit_payment", "create_transaction", "update_transaction", "update_expense", "record_expense_payment", "set_fixed_month_amount", "save_income", "save_invoice", "settle_installment"]
         if watched.contains(action) {
             let preview = try await post(action: "smart_preview", body: ["action": .string(action), "payload": .object(body)])

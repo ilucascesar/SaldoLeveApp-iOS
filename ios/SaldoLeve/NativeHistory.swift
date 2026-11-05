@@ -15,6 +15,7 @@ struct NativeHistoryView: View {
     @State private var shared: NativeSharedFile?
     @State private var editing: NativeRecord?
     @State private var deleting: NativeRecord?
+    @State private var receipt: NativeReceiptTarget?
     var body: some View {
         NavigationStack {
             List {
@@ -33,6 +34,12 @@ struct NativeHistoryView: View {
                             } } label: { Label(file.fields.text("name"), systemImage: "paperclip") }
                         }
                         if editable && store.canWrite {
+                            Button("Adicionar comprovante neste pagamento") { Task {
+                                do {
+                                    let details = try await store.taskDetails(taskID)
+                                    receipt = NativeReceiptTarget(task: NativeTask(details.record("item")), checkID: record.fields.text("checkId"), paymentID: record.id, historicalTitle: record.fields.text("title"))
+                                } catch { self.error = error.localizedDescription }
+                            } }.font(.caption)
                             HStack {
                                 Button("Editar registro") { editing = record }
                                 Spacer()
@@ -48,6 +55,7 @@ struct NativeHistoryView: View {
                 .toolbar { Button("Fechar") { dismiss() } }
                 .task { await load(reset: true) }
                 .sheet(item: $shared) { NativeShareSheet(items: [$0.url]) }
+                .sheet(item: $receipt, onDismiss: { Task { await load(reset: true) } }) { NativeTaskReceipts(store: store, target: $0) }
                 .sheet(item: $editing, onDismiss: { Task { await load(reset: true) } }) { NativePaymentEditor(store: store, record: $0) }
                 .confirmationDialog("Excluir este registro do histórico?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
                     Button("Excluir registro", role: .destructive) {

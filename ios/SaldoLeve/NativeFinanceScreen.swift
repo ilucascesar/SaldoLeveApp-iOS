@@ -220,6 +220,7 @@ struct NativeWebExpenseCard: View {
     private var accent: Color { Color(nativeHex: e.text("accent")) }
     private var compact: Bool { p.cardStyle == "compact" || p.cardColumns == 2 }
     private var progress: JSONObject { data.active.record("paymentProgress").record(expenseID) }
+    private var paymentStatus: NativeExpenseCardPayment { .init(data, id: expenseID) }
     var body: some View {
         Group { if p.cardColumns >= 3 { miniCard } else { fullCard } }
             .contextMenu { actions }
@@ -230,6 +231,7 @@ struct NativeWebExpenseCard: View {
             HStack(alignment: .top, spacing: 9) {
                 if p.cardShowIcon { Image(systemName: e.text("type") == "card" ? "creditcard.fill" : e.text("type") == "home" ? "house.fill" : "wallet.pass.fill").font(.system(size: 15)).foregroundStyle(accent).frame(width: 32, height: 32).background(accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 10)) }
                 Button { open("detail") } label: { VStack(alignment: .leading, spacing: 4) { Text(e.text("name")).font(.system(size: (compact ? 15 : 17) * p.textScale, weight: .semibold)).multilineTextAlignment(.leading); if p.cardShowType { Text(NativeFinanceFormat.expenseType(e.text("type"))).font(.system(size: 11 * p.textScale)).foregroundStyle(.secondary).multilineTextAlignment(.leading) } }.frame(maxWidth: .infinity, alignment: .leading) }.buttonStyle(.plain)
+                if paymentStatus.complete { NativePaidStamp() }
                 Menu { actions
                 } label: { Image(systemName: "ellipsis").frame(width: 24, height: 30).foregroundStyle(.secondary) }.accessibilityLabel("Opções de " + e.text("name"))
             }
@@ -241,15 +243,16 @@ struct NativeWebExpenseCard: View {
             if p.cardShowBreakdown && !compact && e.text("type") == "card" {
                 HStack(spacing: 12) { breakdown("Fatura", data.invoice(expenseID).map { NativeFinanceFormat.money($0.decimal("total")) } ?? "Não informada"); breakdown("Parcelas", NativeFinanceFormat.money(c.decimal("installments"))); breakdown("Outros gastos", data.invoice(expenseID).map { NativeFinanceFormat.money(max(0, $0.decimal("total") - c.decimal("installments"))) } ?? "—") }
             }
+            if e.flag("shared") { NativeExpensePaymentStatus(status: paymentStatus) }
             if !data.active.record("paymentChanges").record(expenseID).isEmpty { Label("Valor alterado após pagamento", systemImage: "exclamationmark.circle").font(.caption2).foregroundStyle(.orange) }
             if p.cardShowActions {
                 Divider()
                 if !compact { HStack { Button { route = .init(kind: "transaction", fields: ["expenseId": .string(expenseID)]) } label: { Label("Novo gasto", systemImage: "plus") }.disabled(!finance.canWrite); Spacer(); if e.text("type") == "card" { Button("Fatura") { open("invoice") }.disabled(!finance.canWrite) } }.font(.system(size: 13 * p.textScale, weight: .semibold)) }
                 Button { pay() } label: { Label(e.flag("shared") ? "Pagamentos" : data.paid(expenseID) ? "Reabrir pagamento" : "Marcar como paga", systemImage: data.paid(expenseID) ? "checkmark.circle.fill" : "circle").font(.system(size: 12 * p.textScale, weight: .semibold)).frame(maxWidth: .infinity).padding(.vertical, 10).foregroundStyle(data.paid(expenseID) ? Color.green : accent).background(accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 10)) }.buttonStyle(.plain).disabled(!finance.canWrite || (!data.paid(expenseID) && c.decimal("integral") <= 0))
             }
-        }.padding(compact ? 13 : 18).background(nativePaper, in: RoundedRectangle(cornerRadius: p.cardRadius))
+        }.padding(compact ? 13 : 18).background(paymentStatus.complete ? Color.green.opacity(0.12) : nativePaper, in: RoundedRectangle(cornerRadius: p.cardRadius))
             .overlay(alignment: .top) { RoundedRectangle(cornerRadius: 2).fill(accent).frame(height: 3).padding(.horizontal, p.cardRadius) }
-            .overlay { RoundedRectangle(cornerRadius: p.cardRadius).strokeBorder(Color.primary.opacity(0.055), lineWidth: 1) }
+            .overlay { RoundedRectangle(cornerRadius: p.cardRadius).strokeBorder(paymentStatus.complete ? Color.green.opacity(0.55) : Color.primary.opacity(0.055), lineWidth: paymentStatus.complete ? 1.5 : 1) }
     }
     private var miniCard: some View {
         Button { open("detail") } label: {
@@ -257,17 +260,19 @@ struct NativeWebExpenseCard: View {
                 HStack(spacing: 3) {
                     if p.cardShowIcon { Image(systemName: e.text("type") == "card" ? "creditcard.fill" : e.text("type") == "home" ? "house.fill" : "wallet.pass.fill").font(.system(size: 13)).foregroundStyle(accent) }
                     Spacer(minLength: 0)
-                    Circle().fill(data.paid(expenseID) ? Color.green : e["active"] == .bool(false) ? .gray : .orange).frame(width: 5, height: 5)
+                    if paymentStatus.complete { NativePaidStamp(compact: true) }
+                    else { Circle().fill(e["active"] == .bool(false) ? Color.gray : .orange).frame(width: 5, height: 5) }
                 }
                 Text(e.text("name")).font(.system(size: 11 * p.textScale, weight: .semibold)).lineLimit(2).frame(height: 30 * p.textScale, alignment: .topLeading).frame(maxWidth: .infinity, alignment: .leading)
                 Text(NativeFinanceFormat.money(c.decimal("integral"))).font(.system(size: (p.cardColumns == 4 ? 13 : 16) * p.textScale, weight: .bold, design: p.roundedValues ? .rounded : .default)).lineLimit(1).minimumScaleFactor(0.6)
                 if p.cardShowType { Text(e.text("type") == "card" ? "Cartão" : e.text("type") == "home" ? "Casa" : "Outros").font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1) }
                 if p.cardShowShare && e.flag("shared") { Text("Sua parte").font(.system(size: 9)).foregroundStyle(.secondary); Text(NativeFinanceFormat.money(c.decimal("considered"))).font(.system(size: 10, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.6) }
-                if p.cardShowActions { HStack(spacing: 2) { Text(e["active"] == .bool(false) ? "Inativa" : data.paid(expenseID) ? "Paga" : "Pendente").font(.system(size: 9)); Spacer(minLength: 0); Image(systemName: "ellipsis").font(.system(size: 10)) }.foregroundStyle(.secondary) }
+                if e.flag("shared") { NativeExpensePaymentStatus(status: paymentStatus, compact: true) }
+                if p.cardShowActions { HStack(spacing: 2) { Text(e["active"] == .bool(false) ? "Inativa" : paymentStatus.complete ? "100% paga" : "Pendente").font(.system(size: 9)); Spacer(minLength: 0); Image(systemName: "ellipsis").font(.system(size: 10)) }.foregroundStyle(.secondary) }
             }.padding(p.cardColumns == 4 ? 8 : 10).frame(maxWidth: .infinity, minHeight: p.cardShowShare && e.flag("shared") ? 152 : 120, alignment: .topLeading)
-                .background(nativePaper, in: RoundedRectangle(cornerRadius: min(14, p.cardRadius)))
+                .background(paymentStatus.complete ? Color.green.opacity(0.12) : nativePaper, in: RoundedRectangle(cornerRadius: min(14, p.cardRadius)))
                 .overlay(alignment: .top) { Capsule().fill(accent).frame(height: 3).padding(.horizontal, 12) }
-                .overlay { RoundedRectangle(cornerRadius: min(14, p.cardRadius)).strokeBorder(accent.opacity(0.13), lineWidth: 1) }
+                .overlay { RoundedRectangle(cornerRadius: min(14, p.cardRadius)).strokeBorder(paymentStatus.complete ? Color.green.opacity(0.55) : accent.opacity(0.13), lineWidth: paymentStatus.complete ? 1.5 : 1) }
         }.buttonStyle(.plain).accessibilityHint("Toque para abrir. Mantenha pressionado para ações ou arraste para reorganizar.")
     }
     @ViewBuilder private var actions: some View {

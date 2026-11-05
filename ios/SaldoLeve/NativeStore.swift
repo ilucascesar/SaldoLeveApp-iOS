@@ -96,6 +96,7 @@ final class NativeStore: ObservableObject {
         reminders.onOpen = { [weak self] id in
             guard let self, user != nil else { return }
             if id.hasPrefix("birthday:") { openedFinance = .init(kind: "birthdays", fields: ["id": .string(String(id.dropFirst(9)))]); return }
+            if id.hasPrefix("reminder:") { openedFinance = .init(kind: "generalReminders"); return }
             if id.hasPrefix("expense:") {
                 section = .dashboard
                 Task { await self.finance.refresh(); self.openedFinance = .init(kind: "detail", fields: ["id": .string(String(id.dropFirst(8)))]) }
@@ -166,6 +167,18 @@ final class NativeStore: ObservableObject {
             report(error)
         }
     }
+    func changePassword(current: String, new: String, confirm: String) async throws {
+        guard canWrite, let identity = user else { throw NativeFailure("Conecte-se ao servidor antes de trocar a senha.") }
+        working = true; defer { working = false }
+        _ = try await api.post(action: "change_password", body: ["current": .string(current), "new": .string(new), "confirm": .string(confirm)])
+        do { let session = try await api.login(user: identity.login, password: new); apply(session); await refresh() }
+        catch { api.clearSession(forgetDevice: true); user = nil; message = "Senha alterada. Entre novamente com a nova senha." }
+    }
+    func duplicate(_ source: NativeTask) async {
+        guard canEdit(source) else { return }
+        do { openedTask = try await save(NativeTaskCopy.make(source)) }
+        catch { if (error as? NativeFailure)?.status != 499 { report(error) } }
+    }
     func refresh() async {
         #if DEBUG
         if let syncFixture {
@@ -186,7 +199,7 @@ final class NativeStore: ObservableObject {
             UserDefaults.standard.set(next.preferences.text("theme"), forKey: "nativeTheme")
             taskIndex = index; snapshot = next; offline = false; needsSync = false; connectionProblem = false; syncedAt = Date()
             persist()
-            await refreshExpenseReminders(); await platform.refresh()
+            await refreshExpenseReminders(); await refreshGeneralReminders(); await platform.refresh()
         } catch {
             if NativeRequestError.isCancellation(error) { return }
             offline = true; needsSync = true; connectionProblem = true
@@ -224,6 +237,15 @@ final class NativeStore: ObservableObject {
             reminders.update(snapshot, expenseRecords: [])
             expenseReminderIssue = "Lembretes de despesas indisponíveis: " + error.localizedDescription
         }
+    }
+    func refreshGeneralReminders() async {
+        guard user != nil, !isPreview else { return }
+        let userID = user?.id
+        do {
+            let response = try await api.get(JSONObject.self, action: "native_general_reminders")
+            guard userID == user?.id else { return }
+            reminders.update(snapshot, generalRecords: response.objects("items"))
+        } catch { if userID == user?.id { reminders.update(snapshot, generalRecords: []) } }
     }
     @discardableResult
     func mutate(_ action: String, _ body: JSONObject) async throws -> JSONObject {

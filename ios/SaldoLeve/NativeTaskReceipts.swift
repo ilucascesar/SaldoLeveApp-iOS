@@ -6,7 +6,9 @@ struct NativeReceiptTarget: Identifiable {
     let id = UUID()
     let task: NativeTask
     let checkID: String
-    var title: String { task.checks.first { $0.id == checkID }?.title ?? task.title }
+    var paymentID: String? = nil
+    var historicalTitle: String? = nil
+    var title: String { historicalTitle ?? task.checks.first { $0.id == checkID }?.title ?? task.title }
 }
 
 @MainActor
@@ -29,7 +31,7 @@ struct NativeTaskReceipts: View {
             List {
                 Section {
                     Text(target.title).font(.headline)
-                    Text("O comprovante será vinculado a este item. O anexo é opcional.").font(.footnote).foregroundStyle(.secondary)
+                    Text(target.paymentID == nil ? "O comprovante será vinculado a este item. O anexo é opcional." : "Este comprovante ficará no pagamento escolhido do histórico, preservando o mês original. O anexo é opcional.").font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Adicionar comprovante") {
                     PhotosPicker(selection: $photo, matching: .images) { Label("Escolher foto", systemImage: "photo.on.rectangle") }
@@ -80,13 +82,15 @@ struct NativeTaskReceipts: View {
         defer { loading = false }
         do {
             let details = try await store.taskDetails(target.task.id)
-            files = details.objects("attachments").filter { $0.text("checkId") == target.checkID }.map(NativeRecord.init)
+            files = details.objects("attachments").filter { file in target.paymentID.map { file.text("paymentId") == $0 } ?? (file.text("checkId") == target.checkID) }.map(NativeRecord.init)
         } catch { issue = error.localizedDescription }
     }
     private func upload(_ bytes: Data, name: String, type: String) async throws {
         guard store.canWrite else { throw NativeFailure("Sem conexão com o servidor. Atualize antes de anexar.") }
         guard !bytes.isEmpty, bytes.count <= 2_097_152 else { throw NativeFailure("Escolha um arquivo de até 2 MB.") }
-        _ = try await store.mutate("org_attach", ["itemId": .string(target.task.id), "checkId": .string(target.checkID), "name": .string(name), "type": .string(type), "base64": .string(bytes.base64EncodedString())])
+        var payload: JSONObject = ["itemId": .string(target.task.id), "checkId": .string(target.checkID), "name": .string(name), "type": .string(type), "base64": .string(bytes.base64EncodedString())]
+        if let id = target.paymentID { payload["paymentId"] = .string(id) }
+        _ = try await store.mutate("org_attach", payload)
         status = "Comprovante salvo no servidor."
         await load()
     }

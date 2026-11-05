@@ -1,6 +1,19 @@
 import UIKit
 
 @MainActor enum NativeWarningPresenter {
+    static func decide(title: String, message: String, accept: String) async -> Bool {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first { $0.activationState == .foregroundActive }
+                guard var controller = scene?.windows.first(where: \.isKeyWindow)?.rootViewController else { continuation.resume(returning: false); return }
+                while let presented = controller.presentedViewController, !presented.isBeingDismissed { controller = presented }
+                let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "Revisar", style: .cancel) { _ in continuation.resume(returning: false) })
+                alert.addAction(UIAlertAction(title: accept, style: .default) { _ in continuation.resume(returning: true) })
+                controller.present(alert, animated: true)
+            }
+        }
+    }
     static func confirm(_ warnings: [JSONObject]) async -> Bool {
         guard !warnings.isEmpty else { return true }
         var lines: [String] = []

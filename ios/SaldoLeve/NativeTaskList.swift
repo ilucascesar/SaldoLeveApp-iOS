@@ -221,6 +221,7 @@ struct NativeTaskList: View {
             else { Button(task.isDone ? "Reabrir" : task.completionLabel) { Task { await store.complete(task) } }; Button(task.fields.flag("pinned") ? "Desafixar" : "Fixar no início") { patch(task, key: "pinned", value: .bool(!task.fields.flag("pinned"))) }; Button("Alterar data") { store.openedTask = task }; Button("Adiar 1 dia") { Task { await store.postpone(task) } }; Button(task.status == "archived" ? "Desarquivar" : "Arquivar") { Task { await store.changeStatus(task, to: task.status == "archived" ? "todo" : "archived") } }; Button("Mover para a lixeira", role: .destructive) { Task { await store.changeStatus(task, to: "trashed") } } }
         }
         Button("Selecionar") { selecting = true; toggleSelection(task.id) }
+        if store.canEdit(task) { Button("Duplicar tarefa") { Task { await store.duplicate(task) } } }
         ShareLink(item: ([task.title, task.fields.text("body")] + task.checks.map { ($0.done ? "☑ " : "☐ ") + $0.title }).joined(separator: "\n")) { Label("Compartilhar", systemImage: "square.and.arrow.up") }
     }
     private var bulkBar: some View {

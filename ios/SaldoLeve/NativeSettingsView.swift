@@ -167,12 +167,17 @@ private struct NativeAccountSettings: View {
     @ObservedObject var store: NativeStore
     @AppStorage("nativeBiometrics") private var biometrics = false
     @State private var logout = false
+    @State private var isAdmin = false
     var body: some View {
         Form {
             Section { Label(store.user?.name ?? "", systemImage: "person.crop.circle.fill").font(.headline); Text(store.user?.login ?? "").foregroundStyle(.secondary) }
             Section("Acesso neste iPhone") {
                 Toggle("Proteger com Face ID ou código", isOn: $biometrics)
                 NavigationLink { NativeDeviceSettings(store: store) } label: { Label("Aparelhos conectados e login salvo", systemImage: "iphone.gen3") }
+            }
+            Section("Sua conta") {
+                NavigationLink("Trocar senha") { NativePasswordChange(store: store) }
+                if isAdmin { NavigationLink("Usuários") { NativeUserAdministration(store: store) } }
             }
             Section("Sincronização") {
                 if let date = store.syncedAt { LabeledContent("Última confirmação", value: date.formatted(date: .abbreviated, time: .shortened)) }
@@ -181,6 +186,7 @@ private struct NativeAccountSettings: View {
             }
             Section { Button("Sair da conta", role: .destructive) { logout = true }.disabled(store.working) }
         }.navigationTitle("Conta e segurança").navigationBarTitleDisplayMode(.inline)
+            .task { await store.finance.refresh(); isAdmin = store.finance.snapshot.fields.record("user").flag("isAdmin") }
             .confirmationDialog("Sair da conta?", isPresented: $logout, titleVisibility: .visible) {
                 Button("Sair e limpar dados deste iPhone", role: .destructive) { Task { await store.logout() } }
             } message: { Text("A cópia de consulta e os lembretes deste aplicativo serão removidos. Os dados confirmados continuam no servidor.") }
