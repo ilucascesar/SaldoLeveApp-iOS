@@ -53,6 +53,7 @@ enum NativeStandaloneReminderPlan {
             guard var date = NativeDate.parse(record.text("scheduledAt")) else { continue }
             var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: record.text("timezone")) ?? TimeZone(identifier: "America/Sao_Paulo")!
             let anchor = calendar.component(.day, from: date), month = calendar.component(.month, from: date)
+            let hour = calendar.component(.hour, from: date), minute = calendar.component(.minute, from: date), second = calendar.component(.second, from: date)
             var added = 0, seen = Set<Date>()
             for _ in 0..<2000 {
                 let fire = preferences.deliveryDate(date)
@@ -69,6 +70,7 @@ enum NativeStandaloneReminderPlan {
                 if repeatKind == "monthly" || repeatKind == "yearly" {
                     if repeatKind == "yearly" { next = calendar.date(bySetting: .month, value: month, of: next) ?? next }
                     next = calendar.date(bySetting: .day, value: min(anchor, calendar.range(of: .day, in: .month, for: next)!.count), of: next) ?? next
+                    next = calendar.date(bySettingHour: hour, minute: minute, second: second, of: next) ?? next
                 }
                 date = next
             }
