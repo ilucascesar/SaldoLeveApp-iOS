@@ -146,7 +146,7 @@ struct NativeFinanceScreen: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) { ForEach(["all", "active", "pending", "paid", "inactive"], id: \.self) { key in Button { status = key } label: { Text(["active":"Ativas", "pending":"Pendentes", "paid":"Pagas", "all":"Todas", "inactive":"Desativadas"][key]!).font(.system(size: 13, weight: .semibold)).padding(.horizontal, 14).padding(.vertical, 10).foregroundStyle(status == key ? .white : Color.primary).background(status == key ? nativeBlue : nativePaper, in: Capsule()) }.buttonStyle(.plain) } }
             }
-            if section == .shared { Text("Sua parte no mês: " + NativeFinanceFormat.money(data.active.decimal("sharedConsidered"))).font(.subheadline).foregroundStyle(.secondary) }
+            if (section == .shared || section == .expenses), !data.active.record("sharedSettlement").isEmpty, data.expenses.contains(where: { $0.flag("shared") }) { sharedRepaymentSummary }
             if layout.expenseGrouping == "none" { cards(expenses) }
             else {
                 ForEach(groupNames, id: \.self) { name in
@@ -159,6 +159,19 @@ struct NativeFinanceScreen: View {
         }
     }
     private func sectionHeading(_ title: String, subtitle: String) -> some View { HStack { Text(title).font(.system(size: 16 * layout.textScale, weight: .semibold)); Spacer(); Text(subtitle).font(.caption).foregroundStyle(.secondary) }.padding(.top, 7) }
+    private var sharedRepaymentSummary: some View {
+        let settlement = data.active.record("sharedSettlement")
+        let receive = settlement.decimal("receivableCents") / 100, pay = settlement.decimal("payableCents") / 100
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Compartilhado").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            HStack(spacing: 14) {
+                if receive > 0 || pay == 0 { metric("A receber dos participantes", NativeFinanceFormat.money(receive), .green) }
+                if pay > 0 { metric("A repassar aos donos", NativeFinanceFormat.money(pay), .orange) }
+            }
+            Text("Somente o que ainda falta acertar neste mês, descontando os pagamentos de cada pessoa.").font(.caption2).foregroundStyle(.secondary)
+        }.padding(13).background(nativePaper, in: RoundedRectangle(cornerRadius: layout.cardRadius))
+            .accessibilityIdentifier("shared-repayment-summary")
+    }
     private var groupNames: [String] { Array(Set(expenses.map(groupName))).sorted() }
     private func groupName(_ e: JSONObject) -> String { layout.expenseGrouping == "type" ? NativeFinanceFormat.expenseType(e.text("type")) : data.paid(e.text("id")) ? "Pagas" : "Pendentes" }
     private func cards(_ list: [JSONObject]) -> some View {
