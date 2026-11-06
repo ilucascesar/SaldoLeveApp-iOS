@@ -6,6 +6,7 @@ struct NativeFinanceModal: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         switch route.kind {
+        case "income": NativeIncomeEditor(finance: finance)
         case "moduleTransactions": NativeFinanceScreen(store: finance.parent, finance: finance, section: .transactions, secondary: true)
         case "moduleShared": NativeFinanceScreen(store: finance.parent, finance: finance, section: .shared, secondary: true)
         case "settings": NativeSettingsView(store: finance.parent)

@@ -374,3 +374,18 @@ check(standalonePlan[0].taskID == "reminder:7" && standalonePlan[0].body == "Men
 var cancelledStandalone = standaloneRecord; cancelledStandalone["status"] = .string("cancelled")
 check(NativeStandaloneReminderPlan.build([cancelledStandalone], now: standaloneNow, preferences: .init()).isEmpty, "Cancelled standalone reminders are not scheduled")
 print("2.8: task copies, exact shared payment status, partial and zero-value cards, standalone recurrence and cancellation passed.")
+
+var incomeDraft = NativeIncomeDraft(month: "2027-01", record: ["amount": .number(3000), "version": .string("server-version")])
+check(incomeDraft.baseAmount == "3000,00" && incomeDraft.extras.isEmpty && (try! incomeDraft.payload()).decimal("amount") == 3000, "Legacy income remains the principal without extras")
+incomeDraft.extras = [NativeIncomeExtra(id: "extra-001", name: "Venda", amount: "250,10"), NativeIncomeExtra(id: "extra-002", name: "Troco", amount: "0,20")]
+let namedIncome = try! incomeDraft.payload()
+check(namedIncome.decimal("amount") == 3250.3 && namedIncome.decimal("baseAmount") == 3000 && namedIncome.text("version") == "server-version" && namedIncome.text("month") == "2027-01", "Extras sum exact cents and preserve server version and month")
+incomeDraft.baseAmount = ""; incomeDraft.extras.removeFirst()
+check((try! incomeDraft.payload()).decimal("amount") == 0.2, "Extras-only income and removing an entry do not retain its amount")
+incomeDraft.extras[0].amount = "0"
+check((try? incomeDraft.payload()) == nil, "An extra must have a positive amount")
+incomeDraft.extras[0].amount = "0,20"; incomeDraft.extras[0].name = " "
+check((try? incomeDraft.payload()) == nil, "An extra must be named")
+incomeDraft.extras = [NativeIncomeExtra(id: "extra-001", name: "Venda", amount: "0,01")]; incomeDraft.baseAmount = "99999999,99"
+check((try? incomeDraft.payload()) == nil, "Combined income respects the server maximum")
+print("2.8.1: named income extras, exact cents, legacy principal, removal, validation, month and server version passed.")
