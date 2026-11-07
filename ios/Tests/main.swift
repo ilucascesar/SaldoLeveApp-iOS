@@ -389,3 +389,23 @@ check((try? incomeDraft.payload()) == nil, "An extra must be named")
 incomeDraft.extras = [NativeIncomeExtra(id: "extra-001", name: "Venda", amount: "0,01")]; incomeDraft.baseAmount = "99999999,99"
 check((try? incomeDraft.payload()) == nil, "Combined income respects the server maximum")
 print("2.8.1: named income extras, exact cents, legacy principal, removal, validation, month and server version passed.")
+
+func verifyReceiptImport() throws {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let file = folder.appendingPathComponent("receipt")
+    let pdf = Data("%PDF-1.4\nreceipt fixture\n".utf8)
+    try pdf.write(to: file)
+    let importedPDF = try SharedReceipt.readFile(at: file, suggestedName: "../Comprovante Caixa.pdf")
+    check(importedPDF.name == "Comprovante Caixa.pdf" && importedPDF.type == "application/pdf" && importedPDF.data == pdf, "Shared PDF preserves its bytes and safe filename")
+    try (pdf + Data(count: 2_097_152)).write(to: file)
+    check((try? SharedReceipt.readFile(at: file, suggestedName: nil)) == nil, "Oversized shared PDF is rejected")
+    try Data(base64Encoded: "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")!.write(to: file)
+    let image = try SharedReceipt.readFile(at: file, suggestedName: "Imagem.gif")
+    check(image.name == "Imagem.jpg" && image.type == "image/jpeg" && image.data.starts(with: [0xff, 0xd8]), "Shared images become JPEG attachments")
+    try Data("not a receipt".utf8).write(to: file)
+    check((try? SharedReceipt.readFile(at: file, suggestedName: "Invalid.pdf")) == nil, "An extension alone does not make an invalid file a receipt")
+}
+try! verifyReceiptImport()
+print("Receipt import: PDF bytes, image conversion, filename and file limits passed.")

@@ -26,7 +26,7 @@ const widgetBuilds = widgetRefs.map((ref,index) => put(id('B1',index+1),{isa:'PB
 const productShare = put(id('D2',30), {isa:'PBXFileReference',explicitFileType:'wrapper.app-extension',includeInIndex:'0',path:'SaldoLeveShare.appex',sourceTree:'BUILT_PRODUCTS_DIR'});
 const shareRefs = ['ShareViewController.swift','ReceiptImport.swift'].map((name,index) => put(id('D2',index+1),{isa:'PBXFileReference',lastKnownFileType:'sourcecode.swift',path:name,sourceTree:'<group>'}));
 const shareInfo = put(id('D2',20), {isa:'PBXFileReference',lastKnownFileType:'text.plist.xml',path:'Info.plist',sourceTree:'<group>'});
-const sharedSources = ['SiteAddress.swift','NativeAPI.swift','NativeModels.swift','NativeNotificationPreferences.swift','NativeFinanceModels.swift','NativeInstallmentDraft.swift'];
+const sharedSources = ['SiteAddress.swift','NativeAPI.swift','NativeModels.swift','NativeNotificationPreferences.swift','NativeTaskMerge.swift','NativeTaskIndex.swift','NativeFinanceModels.swift','NativeInstallmentDraft.swift'];
 const shareBuilds = [...shareRefs, ...sharedSources.map(name => {
   const index = appFiles.indexOf(name);
   if (index < 0) throw new Error(`Missing shared source ${name}`);

@@ -16,7 +16,7 @@ struct SharedReceipt {
             for type in supported {
                 if let identifier = offered.first(where: { $0.conforms(to: type) }) { return (provider, identifier) }
             }
-            return nil
+            return offered.contains(.data) ? (provider, .data) : nil
         }
         guard files.count == 1, let (provider, type) = files.first else {
             throw NativeFailure(files.isEmpty ? "Compartilhe um comprovante em PDF ou imagem." : "Compartilhe um comprovante por vez.")
@@ -73,7 +73,9 @@ struct SharedReceipt {
         for quality in [0.85, 0.65, 0.4] {
             let bytes = NSMutableData()
             guard let writer = CGImageDestinationCreateWithData(bytes as CFMutableData, UTType.jpeg.identifier as CFString, 1, nil) else { break }
-            CGImageDestinationAddImage(writer, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+            let encoding: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: quality,
+                                             kCGImageDestinationBackgroundColor: CGColor(gray: 1, alpha: 1)]
+            CGImageDestinationAddImage(writer, image, encoding as CFDictionary)
             if CGImageDestinationFinalize(writer), bytes.length <= maxBytes {
                 return SharedReceipt(name: name + ".jpg", type: "image/jpeg", data: bytes as Data)
             }
