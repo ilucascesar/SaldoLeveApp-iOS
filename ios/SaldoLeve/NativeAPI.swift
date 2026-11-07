@@ -47,13 +47,17 @@ final class NativeAPI {
     var csrf = ""
     var loginCsrf = ""
     private var restoring: Task<NativeSession, Error>?
+    private let deviceName: String
     var reviewWarnings: (([JSONObject]) async -> Bool)?
+    var reviewDuplicate: ((String) async -> Bool)?
     private var pendingOperations: [String: String] = [:]
     private var acceptedReviews: [String: String] = [:]
     private var acceptedDuplicates = Set<String>()
-    init(address: SiteAddress) {
+    init(address: SiteAddress, deviceName: String = "SaldoLeve · iPhone", credentialNamespace: String = "") {
         self.address = address
-        storageID = SHA256.hash(data: Data(address.home.deletingLastPathComponent().absoluteString.utf8)).map { String(format: "%02x", $0) }.joined()
+        self.deviceName = deviceName
+        let credentialScope = address.home.deletingLastPathComponent().absoluteString + credentialNamespace
+        storageID = SHA256.hash(data: Data(credentialScope.utf8)).map { String(format: "%02x", $0) }.joined()
         cookie = NativeKeychain.read("session-" + storageID)
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false
@@ -122,7 +126,7 @@ final class NativeAPI {
             catch let failure as NativeFailure where [401, 403].contains(failure.status) { NativeKeychain.write(nil, account: "device-" + storageID); throw failure }
         }
         if data.authenticated && (data.nativeApiVersion ?? 1) >= 2 && NativeKeychain.read("device-" + storageID) == nil {
-            data = try await decode(NativeSession.self, file: "mobile-auth.php", query: ["action": "remember"], body: ["deviceName": .string("SaldoLeve · iPhone")], token: data.loginCsrf)
+            data = try await decode(NativeSession.self, file: "mobile-auth.php", query: ["action": "remember"], body: ["deviceName": .string(deviceName)], token: data.loginCsrf)
         }
         if let token = data.deviceToken { NativeKeychain.write(token, account: "device-" + storageID) }
         csrf = data.csrf; loginCsrf = data.loginCsrf
@@ -133,7 +137,7 @@ final class NativeAPI {
         var body: JSONObject = changingPassword
             ? ["nova_senha": .string(password), "confirmar_senha": .string(password)]
             : ["usuario": .string(user), "senha": .string(password)]
-        body["deviceName"] = .string("SaldoLeve · iPhone")
+        body["deviceName"] = .string(deviceName)
         let data = try await decode(NativeSession.self, file: "mobile-auth.php", query: ["action": changingPassword ? "password" : "login"], body: body, token: loginCsrf)
         csrf = data.csrf; loginCsrf = data.loginCsrf
         if let token = data.deviceToken { NativeKeychain.write(token, account: "device-" + storageID) }
@@ -178,7 +182,7 @@ final class NativeAPI {
             let matches = duplicates.objects("matches")
             if !matches.isEmpty {
                 let names = matches.map { $0.text("text") + ($0["amount"]?.number.map { " · " + NativeDate.money($0) } ?? "") }.joined(separator: "\n")
-                guard await NativeWarningPresenter.decide(title: "Possível cobrança duplicada", message: "Já existe algo parecido em nome, valor e vencimento:\n\n" + names + "\n\nConfira antes de continuar.", accept: "Salvar mesmo assim") else { throw NativeFailure("Confira a possível duplicidade antes de salvar.", status: 499) }
+                guard let reviewDuplicate, await reviewDuplicate(names) else { throw NativeFailure("Confira a possível duplicidade antes de salvar.", status: 499) }
                 acceptedDuplicates.insert(fingerprint)
             }
         }

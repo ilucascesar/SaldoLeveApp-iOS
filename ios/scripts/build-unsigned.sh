@@ -11,7 +11,7 @@ if [ "${SDK_VERSION%%.*}" -lt 27 ]; then
   echo 'The extra-large portrait widget requires Xcode 27 and the iOS 27 SDK or later.'
   exit 1
 fi
-plutil -lint SaldoLeve/Info.plist SaldoLeve/Settings.bundle/Root.plist SaldoLeveWidgets/Info.plist SaldoLeve/PrivacyInfo.xcprivacy SaldoLeve.xcodeproj/project.pbxproj
+plutil -lint SaldoLeve/Info.plist SaldoLeve/Settings.bundle/Root.plist SaldoLeveWidgets/Info.plist SaldoLeveShare/Info.plist SaldoLeve/PrivacyInfo.xcprivacy SaldoLeve.xcodeproj/project.pbxproj
 mkdir -p "$BUILD_ROOT"
 swiftc SaldoLeve/SiteAddress.swift SaldoLeve/NativeNotificationPreferences.swift SaldoLeve/NativeLayoutPreferences.swift SaldoLeve/NativeModels.swift SaldoLeve/NativeTaskMerge.swift SaldoLeve/NativeTaskIndex.swift SaldoLeve/NativeFinanceModels.swift SaldoLeve/NativeIncomeModels.swift SaldoLeve/NativePlatformModels.swift SaldoLeve/NativeSharingModels.swift SaldoLeve/NativeInstallmentDraft.swift SaldoLeveWidgets/WidgetModels.swift Tests/main.swift -o "$BUILD_ROOT/address-tests"
 "$BUILD_ROOT/address-tests"
@@ -41,7 +41,10 @@ test -f "$APP/PrivacyInfo.xcprivacy"
 test -f "$APP/Settings.bundle/Root.plist"
 test -x "$APP/PlugIns/SaldoLeveWidgets.appex/SaldoLeveWidgets"
 test -f "$APP/PlugIns/SaldoLeveWidgets.appex/config.json"
+test -x "$APP/PlugIns/SaldoLeveShare.appex/SaldoLeveShare"
+test -f "$APP/PlugIns/SaldoLeveShare.appex/config.json"
 /usr/bin/lipo "$APP/PlugIns/SaldoLeveWidgets.appex/SaldoLeveWidgets" -verify_arch arm64
+/usr/bin/lipo "$APP/PlugIns/SaldoLeveShare.appex/SaldoLeveShare" -verify_arch arm64
 if test -f "$APP/NativeBridge.js"; then echo 'Unexpected legacy WebView bridge in native app'; exit 1; fi
 /usr/libexec/PlistBuddy -c 'Print :CFBundleSupportedPlatforms:0' "$APP/Info.plist" | /usr/bin/grep -qx 'iPhoneOS'
 /usr/bin/lipo "$APP/SaldoLeve" -verify_arch arm64

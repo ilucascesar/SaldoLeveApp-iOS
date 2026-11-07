@@ -81,6 +81,10 @@ final class NativeStore: ObservableObject {
         let address = SiteAddress(config?["serverURL"] ?? "") ?? SiteAddress("https://tools.ilucas.com.br/SaldoLeveApp/sistema.php")!
         api = NativeAPI(address: address)
         api.reviewWarnings = { warnings in await NativeWarningPresenter.confirm(warnings) }
+        api.reviewDuplicate = { names in
+            await NativeWarningPresenter.decide(title: "Possível cobrança duplicada",
+                message: "Já existe algo parecido em nome, valor e vencimento:\n\n" + names + "\n\nConfira antes de continuar.", accept: "Salvar mesmo assim")
+        }
         section = NativeAppSection(key: layout.startPage)
         pathMonitor.pathUpdateHandler = { [weak self] path in
             let available = path.status == .satisfied

@@ -21,7 +21,22 @@ with zipfile.ZipFile(target) as archive:
     assert extension['NSExtension']['NSExtensionPointIdentifier'] == 'com.apple.widgetkit-extension'
     assert 'iPhoneOS' in main['CFBundleSupportedPlatforms']
     assert 'iPhoneOS' in extension['CFBundleSupportedPlatforms']
-    for prefix, name in [(app, 'SaldoLeve'), (widget, 'SaldoLeveWidgets')]:
+    binaries = [(app, 'SaldoLeve'), (widget, 'SaldoLeveWidgets')]
+    share = app + 'PlugIns/SaldoLeveShare.appex/'
+    if tuple(map(int, main['CFBundleShortVersionString'].split('.'))) >= (2, 9, 0):
+        sharing = plistlib.loads(archive.read(share + 'Info.plist'))
+        assert sharing['CFBundleIdentifier'] == main['CFBundleIdentifier'] + '.share'
+        assert sharing['CFBundleVersion'] == main['CFBundleVersion']
+        assert sharing['CFBundleShortVersionString'] == main['CFBundleShortVersionString']
+        assert 'iPhoneOS' in sharing['CFBundleSupportedPlatforms']
+        registration = sharing['NSExtension']
+        assert registration['NSExtensionPointIdentifier'] == 'com.apple.share-services'
+        assert registration['NSExtensionPrincipalClass'] == 'SaldoLeveShare.ShareViewController'
+        rule = registration['NSExtensionAttributes']['NSExtensionActivationRule']
+        assert all(identifier in rule for identifier in ['com.adobe.pdf', 'public.image', 'public.file-url'])
+        assert b'org_attach_receipt' in archive.read(share + 'SaldoLeveShare')
+        binaries.append((share, 'SaldoLeveShare'))
+    for prefix, name in binaries:
         data = archive.read(prefix + name)
         magic, cpu, subtype, filetype, count, size, flags, reserved = struct.unpack_from('<8I', data)
         assert magic == 0xFEEDFACF and cpu == 0x100000C, 'Expected ARM64 Mach-O'
@@ -74,4 +89,5 @@ with zipfile.ZipFile(target) as archive:
             'Alternate app icons missing: Info.plist icons ' + json.dumps({key: sorted(value) if isinstance(value, dict) else value for key, value in main.items() if 'Icon' in key}, default=str) + ' files ' + ', '.join(icon_files)
 print(json.dumps({'file': str(target.resolve()), 'version': main['CFBundleShortVersionString'], 'build': main['CFBundleVersion'],
                   'app': main['CFBundleIdentifier'], 'widget': extension['CFBundleIdentifier'], 'platform': 'iPhoneOS/arm64',
+                  'shareExtension': sharing['CFBundleIdentifier'] if len(binaries) == 3 else None,
                   'bytes': target.stat().st_size, 'sha256': hashlib.sha256(target.read_bytes()).hexdigest()}, ensure_ascii=False))
