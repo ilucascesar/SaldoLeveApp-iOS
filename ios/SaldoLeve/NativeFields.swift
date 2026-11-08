@@ -223,6 +223,7 @@ struct NativeInlineCheckRow: View {
     var transfer: () -> Void = {}
     var submit: () -> Void = {}
     var viewReceipts: (() -> Void)? = nil
+    var receiptShortcut = false
     var attach: () -> Void
     var remove: () -> Void
     @State private var amount = false
@@ -263,7 +264,7 @@ struct NativeInlineCheckRow: View {
                 }
                 pausedNote
             }.frame(maxWidth: .infinity, alignment: .leading)
-            menu
+            rowActions
         }.padding(.vertical, p.compact ? 1 : 5).padding(.horizontal, p.highlight && !done ? 8 : 0)
             .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(p.highlight && !done ? nativeBlue.opacity(0.07) : Color.clear))
     }
@@ -277,7 +278,7 @@ struct NativeInlineCheckRow: View {
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 if p.highlight && !done { badge("Próxima", color: nativeBlue, filled: true).padding(.top, 8) }
                 else if p.pills { badge(p.label(money: money), color: p.tint).padding(.top, 8) }
-                menu
+                rowActions
             }
             if p.metadata || (money && p.amounts) {
                 HStack(alignment: .bottom, spacing: 0) {
@@ -311,7 +312,7 @@ struct NativeInlineCheckRow: View {
                 }
                 pausedNote
             }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
-            menu
+            rowActions
         }
     }
     private var ledgerRow: some View {
@@ -333,7 +334,7 @@ struct NativeInlineCheckRow: View {
             title(size: 14, weight: .regular, minHeight: 36).lineLimit(1...3)
             if p.metadata, let dueDate { Text(dueDate.formatted(.dateTime.day().month(.twoDigits).locale(Locale(identifier: "pt_BR")))).font(.system(size: 11)).foregroundStyle(done ? Color.secondary : p.tint) }
             if money && p.amounts { amountButton(size: 12, weight: .medium) }
-            menu
+            rowActions
         }
     }
 
@@ -381,12 +382,24 @@ struct NativeInlineCheckRow: View {
     @ViewBuilder private var pausedNote: some View {
         if let until = NativeDate.parse(fields.text("pausedUntil")), until > Date() { Text("Pausada até " + until.formatted(.dateTime.day().month(.abbreviated).locale(Locale(identifier: "pt_BR")))).font(.system(size: 11)).foregroundStyle(.orange) }
     }
+    private var rowActions: some View {
+        HStack(spacing: 2) {
+            if receiptShortcut {
+                Button(action: attach) {
+                    Image(systemName: "paperclip").font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(nativeBlue).frame(width: 40, height: 44)
+                        .contentShape(Rectangle())
+                }.disabled(saving).accessibilityLabel("Anexar comprovante")
+            }
+            menu
+        }
+    }
     private var menu: some View {
         Menu {
             if let viewReceipts { Button(action: viewReceipts) { Label("Visualizar comprovante", systemImage: "doc.text.magnifyingglass") } }
             if editable && !saving {
             Button { date = true } label: { Label("Data e horário", systemImage: "calendar") }
-            Button { attach() } label: { Label("Anexos e comprovantes", systemImage: "paperclip") }
+            Button { attach() } label: { Label("Anexar comprovante", systemImage: "paperclip") }
             if money { if !done { Button("Pagar / antecipar") { payment() } }; Button(done ? "Valores original e pago" : "Alterar valor original") { if done { values() } else { amount = true } } }
             Toggle("Repetir no próximo ciclo mensal", isOn: Binding(get: { fields["repeatMonthly"]?.bool ?? true }, set: { fields["repeatMonthly"] = .bool($0) }))
             if monthly && !done {

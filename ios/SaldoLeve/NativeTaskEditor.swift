@@ -89,7 +89,9 @@ struct NativeTaskEditor: View {
             }
             .sheet(isPresented: $installmentGenerator) { NativeInstallmentGenerator(task: $task) }
             .sheet(item: $installmentSelection) { selection in NativeInstallmentPayment(task: $task, initialCheckID: selection.checkID, commit: { autosave?.cancel(); return await commit(closing: false) }) }
-            .sheet(item: $receiptTarget) { target in NativeTaskReceipts(store: store, target: target) { attachments = $0 } }
+            .sheet(item: $receiptTarget) { target in
+                NativeTaskReceipts(store: store, target: target, onFilesChanged: { attachments = $0 }, onAttached: { flash("Comprovante anexado") })
+            }
             .quickLookPreview($receiptPreview)
             .onChange(of: receiptPreview) { [receiptPreview] next in
                 if let receiptPreview, receiptPreview != next { try? FileManager.default.removeItem(at: receiptPreview.deletingLastPathComponent()) }
@@ -230,10 +232,19 @@ struct NativeTaskEditor: View {
         installmentSelection = NativeInstallmentSelection(checkID: id)
     }
     private func openReceipts(_ checkID: String = "") {
+        guard !saving, !loading else { return }
+        if !checkID.isEmpty {
+            guard editable else { return }
+            guard valid else { receiptIssue = "Preencha o título da tarefa e o nome da subtarefa antes de anexar."; return }
+        }
         autosave?.cancel()
         Task {
             if editable { guard await commit(closing: false) else { return } }
             guard !task.id.isEmpty else { return }
+            if !checkID.isEmpty && !task.checks.contains(where: { $0.id == checkID }) {
+                receiptIssue = "Esta subtarefa mudou. Atualize a tarefa e confira o destino."
+                return
+            }
             receiptTarget = NativeReceiptTarget(task: task, checkID: checkID)
         }
     }
@@ -273,19 +284,29 @@ struct NativeTaskEditor: View {
         }
     }
     private func checkRow(_ id: String, presentation: NativeCheckPresentation, receipts: [NativeRecord]) -> some View {
+        let canAttach = editable && !loading && !closing
         VStack(alignment: .leading, spacing: 3) {
-            NativeInlineCheckRow(fields: checkBinding(id), money: task.isMoney, editable: editable && !loading && !closing, saving: saving, monthly: task.fields["repeat"]?.object.text("frequency") == "monthly" && !task.id.isEmpty, canTransfer: !task.id.isEmpty, presentation: presentation, payment: { openPayment(id) }, values: { autosave?.cancel(); Task { if await commit(closing: false) { valuesRecord = NativeRecord(fields: ["id": .string(id)]) } } }, pause: { months, resume in pause(months: months, resume: resume, checkID: id) }, transfer: { movingCheck = id }, submit: registerCheck, viewReceipts: receipts.isEmpty ? nil : {
+            NativeInlineCheckRow(fields: checkBinding(id), money: task.isMoney, editable: canAttach, saving: saving, monthly: task.fields["repeat"]?.object.text("frequency") == "monthly" && !task.id.isEmpty, canTransfer: !task.id.isEmpty, presentation: presentation, payment: { openPayment(id) }, values: { autosave?.cancel(); Task { if await commit(closing: false) { valuesRecord = NativeRecord(fields: ["id": .string(id)]) } } }, pause: { months, resume in pause(months: months, resume: resume, checkID: id) }, transfer: { movingCheck = id }, submit: registerCheck, viewReceipts: receipts.isEmpty ? nil : {
                 if receipts.count == 1, let file = receipts.first { previewReceipt(file) }
                 else { receiptTarget = NativeReceiptTarget(task: task, checkID: id, viewOnly: true) }
-            }, attach: { openReceipts(id) }, remove: { removingCheck = id })
-            if let file = receipts.last {
-                Button { previewReceipt(file) } label: {
-                    HStack(spacing: 6) {
-                        NativeReceiptThumbnail(api: store.api, file: file)
-                        if receipts.count > 1 { Text("+\(receipts.count - 1)").font(.caption2).foregroundStyle(.secondary) }
+            }, receiptShortcut: canAttach, attach: { openReceipts(id) }, remove: { removingCheck = id })
+            if !receipts.isEmpty || presentation.style == "ledger" && canAttach {
+                HStack(spacing: 12) {
+                    if let file = receipts.last {
+                        Button { previewReceipt(file) } label: {
+                            HStack(spacing: 6) {
+                                NativeReceiptThumbnail(api: store.api, file: file)
+                                if receipts.count > 1 { Text("+\(receipts.count - 1)").font(.caption2).foregroundStyle(.secondary) }
+                            }
+                        }.accessibilityLabel("Visualizar comprovante " + file.fields.text("name"))
+                    }
+                    if presentation.style == "ledger" && canAttach {
+                        Button { openReceipts(id) } label: {
+                            Label("Anexar", systemImage: "paperclip").font(.footnote.weight(.semibold))
+                                .frame(minHeight: 44)
+                        }.disabled(saving).accessibilityLabel("Anexar comprovante")
                     }
                 }.buttonStyle(.borderless).padding(.leading, 34).padding(.bottom, 4)
-                    .accessibilityLabel("Visualizar comprovante " + file.fields.text("name"))
             }
         }
     }

@@ -54,6 +54,7 @@ struct NativeReceiptTarget: Identifiable {
     var paymentID: String? = nil
     var historicalTitle: String? = nil
     var viewOnly = false
+    var quickAttach: Bool { !checkID.isEmpty && paymentID == nil && !viewOnly }
     var title: String { historicalTitle ?? task.checks.first { $0.id == checkID }?.title ?? task.title }
 }
 
@@ -62,6 +63,7 @@ struct NativeTaskReceipts: View {
     @ObservedObject var store: NativeStore
     let target: NativeReceiptTarget
     var onFilesChanged: ([NativeRecord]) -> Void = { _ in }
+    var onAttached: () -> Void = {}
     @Environment(\.dismiss) private var dismiss
     @State private var files: [NativeRecord] = []
     @State private var photo: PhotosPickerItem?
@@ -72,24 +74,30 @@ struct NativeTaskReceipts: View {
     @State private var issue: String?
     @State private var status = ""
     @State private var preview: URL?
-    private var editable: Bool { store.canWrite && store.canEdit(target.task) && !working && !loading }
+    private var editable: Bool { store.canWrite && store.canEdit(target.task) && !working && (target.quickAttach || !loading) }
     var body: some View {
         NavigationStack {
             List {
                 Section {
                     Text(target.title).font(.headline)
-                    if !target.viewOnly {
+                    if target.quickAttach {
+                        if working { ProgressView("Enviando comprovante…").font(.footnote) }
+                        if !status.isEmpty { Label(status, systemImage: "checkmark.circle").font(.footnote).foregroundStyle(.green) }
+                        if let issue { Text(issue).font(.footnote).foregroundStyle(.red) }
+                    }
+                    if !target.viewOnly && !target.quickAttach {
                         Text(target.paymentID == nil ? "O comprovante será vinculado a este item. O anexo é opcional." : "Este comprovante ficará no pagamento escolhido do histórico, preservando o mês original. O anexo é opcional.").font(.footnote).foregroundStyle(.secondary)
                     }
                 }
-                if !target.viewOnly {
-                Section("Adicionar comprovante") {
+                if !target.viewOnly && (!target.quickAttach || !working) {
+                Section {
                     PhotosPicker(selection: $photo, matching: .images, preferredItemEncoding: .current) { Label("Escolher foto", systemImage: "photo.on.rectangle") }
+                    Button { importing = true } label: { Label("Escolher PDF ou arquivo", systemImage: "folder") }
+                    Button { pasteReceipt() } label: { Label("Colar comprovante", systemImage: "doc.on.clipboard") }
                     if UIImagePickerController.isSourceTypeAvailable(.camera) { Button { camera = true } label: { Label("Tirar foto", systemImage: "camera") } }
-                    Button { importing = true } label: { Label("Escolher arquivo", systemImage: "folder") }
-                    Button { pasteImage() } label: { Label("Colar imagem copiada", systemImage: "doc.on.clipboard") }
                 }.disabled(!editable)
                 }
+                if !target.quickAttach {
                 Section("Comprovantes deste item") {
                     if loading { ProgressView("Carregando…") }
                     else if files.isEmpty { Text("Nenhum comprovante anexado.").foregroundStyle(.secondary) }
@@ -102,17 +110,20 @@ struct NativeTaskReceipts: View {
                         }
                     }
                 }
-                if working { ProgressView("Enviando comprovante…") }
-                if !status.isEmpty { Label(status, systemImage: "checkmark.circle").font(.footnote).foregroundStyle(.green) }
-                if let issue { Text(issue).font(.footnote).foregroundStyle(.red) }
-                if !target.viewOnly {
+                }
+                if !target.quickAttach {
+                    if working { ProgressView("Enviando comprovante…") }
+                    if !status.isEmpty { Label(status, systemImage: "checkmark.circle").font(.footnote).foregroundStyle(.green) }
+                    if let issue { Text(issue).font(.footnote).foregroundStyle(.red) }
+                }
+                if !target.viewOnly && !target.quickAttach {
                     Section { Text("Arquivos e PDFs podem ter até 2 MB. Imagens maiores são reduzidas. Os comprovantes ficam criptografados no servidor.").font(.footnote).foregroundStyle(.secondary) }
                 }
             }.buttonStyle(.borderless)
-                .navigationTitle("Comprovantes").navigationBarTitleDisplayMode(.inline)
-                .toolbar { Button("Fechar") { dismiss() }.disabled(working) }
+                .navigationTitle(target.quickAttach ? "Anexar comprovante" : "Comprovantes").navigationBarTitleDisplayMode(.inline)
+                .toolbar { Button(target.quickAttach ? "Cancelar" : "Fechar") { dismiss() }.disabled(working) }
                 .interactiveDismissDisabled(working)
-                .task { await load() }
+                .task { if !target.quickAttach { await load() } }
                 .quickLookPreview($preview)
                 .onChange(of: preview) { [preview] next in
                     if let preview, preview != next { try? FileManager.default.removeItem(at: preview.deletingLastPathComponent()) }
@@ -141,9 +152,11 @@ struct NativeTaskReceipts: View {
                         } catch { issue = error.localizedDescription }
                     }
                 }
-        }.presentationDetents([.medium, .large])
+        }
+        .presentationDetents(target.quickAttach ? [.height(360), .large] : [.medium, .large])
+        .presentationDragIndicator(.visible)
     }
-    private func load() async {
+    @discardableResult private func load() async -> Bool {
         defer { loading = false }
         do {
             let details = try await store.taskDetails(target.task.id)
@@ -154,16 +167,21 @@ struct NativeTaskReceipts: View {
                     ?? (file.fields.text("checkId") == target.checkID && (!target.viewOnly || nativeCurrentReceipt(file, task: task)))
             }
             onFilesChanged(all)
-        } catch { issue = error.localizedDescription }
+            return true
+        } catch { issue = error.localizedDescription; return false }
     }
     private func upload(_ bytes: Data, name: String, type: String) async throws {
         guard store.canWrite else { throw NativeFailure("Sem conexão com o servidor. Atualize antes de anexar.") }
         guard !bytes.isEmpty, bytes.count <= 2_097_152 else { throw NativeFailure("Escolha um arquivo de até 2 MB.") }
         var payload: JSONObject = ["itemId": .string(target.task.id), "checkId": .string(target.checkID), "name": .string(name), "type": .string(type), "base64": .string(bytes.base64EncodedString())]
         if let id = target.paymentID { payload["paymentId"] = .string(id) }
-        _ = try await store.mutate("org_attach", payload)
+        let confirmDestination = target.quickAttach && (target.task.isActive || target.task.isDone)
+        if confirmDestination { payload["revision"] = .number(Double(target.task.revision)) }
+        _ = try await store.mutate(confirmDestination ? "org_attach_receipt" : "org_attach", payload)
         status = "Comprovante salvo no servidor."
-        await load()
+        let refreshed = await load()
+        onAttached()
+        if target.quickAttach && refreshed { dismiss() }
     }
     private func uploadImage(_ image: UIImage) {
         guard !working else { return }
@@ -174,9 +192,29 @@ struct NativeTaskReceipts: View {
             catch { issue = error.localizedDescription }
         }
     }
-    private func pasteImage() {
-        guard let image = UIPasteboard.general.image else { issue = "Copie uma imagem e toque em Colar. Para PDF, use Escolher arquivo."; return }
-        uploadImage(image)
+    private func pasteReceipt() {
+        guard !working else { return }
+        let clipboard = UIPasteboard.general
+        if let type = clipboard.types.compactMap({ UTType($0) }).first(where: { $0.conforms(to: .pdf) || $0.conforms(to: .image) }),
+           let data = clipboard.data(forPasteboardType: type.identifier),
+           let ext = type.preferredFilenameExtension, let mime = type.preferredMIMEType {
+            if data.count > 2_097_152, type.conforms(to: .image), let image = UIImage(data: data) {
+                uploadImage(image)
+                return
+            }
+            working = true; issue = nil; status = ""
+            Task {
+                defer { working = false }
+                do { try await upload(data, name: "Comprovante-\(Int(Date().timeIntervalSince1970))." + ext, type: mime) }
+                catch { issue = error.localizedDescription }
+            }
+        } else if let url = clipboard.url, url.isFileURL {
+            importFile(.success(url))
+        } else if let image = clipboard.image {
+            uploadImage(image)
+        } else {
+            issue = "Copie uma imagem ou um PDF e toque em Colar comprovante. Você também pode escolher o arquivo."
+        }
     }
     private func importFile(_ result: Result<URL, Error>) {
         guard case .success(let url) = result else {
