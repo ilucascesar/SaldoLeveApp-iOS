@@ -212,11 +212,15 @@ final class NativeAPI {
         if let message = envelope.message { result["message"] = .string(message) }
         return result
     }
-    func download(id: String, name: String) async throws -> URL {
+    func attachmentData(id: String) async throws -> Data {
         let (bytes, response) = try await transport(file: "api.php", query: ["api": "org_download", "id": id])
         guard response.statusCode == 200, response.value(forHTTPHeaderField: "Content-Disposition") != nil else {
             throw NativeFailure("Não foi possível baixar o anexo. Atualize sua sessão.", status: response.statusCode)
         }
+        return bytes
+    }
+    func download(id: String, name: String) async throws -> URL {
+        let bytes = try await attachmentData(id: id)
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("NativeAttachments").appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let clean = String((name as NSString).lastPathComponent.prefix(170))

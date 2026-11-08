@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
+import QuickLook
 
 struct NativeRecord: Identifiable {
     let fields: JSONObject
@@ -22,6 +23,9 @@ struct NativeTaskEditor: View {
     @State private var comments: [NativeRecord] = []
     @State private var comment = ""
     @State private var receiptTarget: NativeReceiptTarget?
+    @State private var receiptPreview: URL?
+    @State private var receiptIssue: String?
+    @State private var loadingReceipt = false
     @State private var history = false
     @State private var suggestions = false
     @State private var valuesRecord: NativeRecord?
@@ -41,6 +45,7 @@ struct NativeTaskEditor: View {
     @State private var reordering = false
     @State private var trashConfirm = false
     @State private var newCheck = ""
+    @FocusState private var newCheckFocused: Bool
     @State private var newCheckID = UUID().uuidString
     @State private var closing = false
     @State private var saveStatus = ""
@@ -84,7 +89,14 @@ struct NativeTaskEditor: View {
             }
             .sheet(isPresented: $installmentGenerator) { NativeInstallmentGenerator(task: $task) }
             .sheet(item: $installmentSelection) { selection in NativeInstallmentPayment(task: $task, initialCheckID: selection.checkID, commit: { autosave?.cancel(); return await commit(closing: false) }) }
-            .sheet(item: $receiptTarget) { target in NativeTaskReceipts(store: store, target: target) }
+            .sheet(item: $receiptTarget) { target in NativeTaskReceipts(store: store, target: target) { attachments = $0 } }
+            .quickLookPreview($receiptPreview)
+            .onChange(of: receiptPreview) { [receiptPreview] next in
+                if let receiptPreview, receiptPreview != next { try? FileManager.default.removeItem(at: receiptPreview.deletingLastPathComponent()) }
+            }
+            .alert("Comprovante", isPresented: Binding(get: { receiptIssue != nil }, set: { if !$0 { receiptIssue = nil } })) {
+                Button("OK") { receiptIssue = nil }
+            } message: { Text(receiptIssue ?? "") }
             .sheet(isPresented: $remindersOptions) { NativeReminderOptions(fields: $task.fields) }
             .sheet(isPresented: $moneyOptions) { NativeMoneyOptions(fields: $task.fields) }
             .sheet(isPresented: $locationOptions) { NativeTaskLocationSheet(fields: $task.fields, store: store) }
@@ -225,24 +237,57 @@ struct NativeTaskEditor: View {
             receiptTarget = NativeReceiptTarget(task: task, checkID: checkID)
         }
     }
+    private func previewReceipt(_ file: NativeRecord) {
+        guard !loadingReceipt else { return }
+        loadingReceipt = true
+        Task {
+            defer { loadingReceipt = false }
+            do { receiptPreview = try await store.api.download(id: file.id, name: file.fields.text("name")) }
+            catch { receiptIssue = error.localizedDescription }
+        }
+    }
     private var reminderLabel: String {
         (task.fields["dateRemindersEnabled"] == .bool(false) ? "Avisos desativados" : "Avisos: \(max(60, task.fields.integer("overdueMinutes")) / 60) h") + (task.fields["repeat"]?.object.text("frequency") == "monthly" ? " · Mensal" : "")
     }
     // Style, grouping and details come from Configurações → Layout → Tarefa aberta.
     @ViewBuilder private var checklistSection: some View {
         let checks = task.checks
+        let receipts = Dictionary(grouping: attachments.filter { nativeCurrentReceipt($0, task: task) }) { $0.fields.text("checkId") }
         NativeTaskChecklist(checks: checks, money: task.isMoney, receive: task.moneyMode == "receive", pendingAmount: task.isMoney ? task.pendingAmount : nil, layout: store.layout, collapsed: collapsedGroups, toggle: { id in
             withAnimation(.easeInOut(duration: 0.2)) { if collapsedGroups.contains(id) { collapsedGroups.remove(id) } else { collapsedGroups.insert(id) } }
-        }) { check, presentation in checkRow(check.id, presentation: presentation) }
+        }) { check, presentation in checkRow(check.id, presentation: presentation, receipts: receipts[check.id] ?? []) }
         if editable {
             Section {
-                HStack(spacing: 10) { Image(systemName: "plus.circle.dashed").font(.system(size: 21, weight: .light)).foregroundStyle(.secondary).frame(width: 26); TextField("Adicionar subtarefa", text: $newCheck, axis: .vertical).submitLabel(.done).onSubmit { addCheck() }; if !newCheck.isEmpty { Button { addCheck() } label: { Image(systemName: "arrow.up.circle.fill").font(.title3) } } }.frame(minHeight: 44)
+                HStack(spacing: 10) {
+                    Image(systemName: "plus.circle.dashed").font(.system(size: 21, weight: .light)).foregroundStyle(.secondary).frame(width: 26)
+                    TextField("Adicionar subtarefa", text: $newCheck)
+                        .focused($newCheckFocused).submitLabel(.next)
+                        .onSubmit(registerCheck)
+                    if !newCheck.isEmpty {
+                        Button(action: registerCheck) { Image(systemName: "arrow.up.circle.fill").font(.title3) }
+                            .accessibilityLabel("Registrar subtarefa")
+                    }
+                }.frame(minHeight: 44)
                 if checks.count > 1 { Button { reordering = true } label: { Label("Reordenar subtarefas", systemImage: "arrow.up.arrow.down") }.font(.system(size: 12)).padding(.vertical, 4) }
             }
         }
     }
-    private func checkRow(_ id: String, presentation: NativeCheckPresentation) -> some View {
-        NativeInlineCheckRow(fields: checkBinding(id), money: task.isMoney, editable: editable && !loading && !closing, saving: saving, monthly: task.fields["repeat"]?.object.text("frequency") == "monthly" && !task.id.isEmpty, canTransfer: !task.id.isEmpty, presentation: presentation, payment: { openPayment(id) }, values: { autosave?.cancel(); Task { if await commit(closing: false) { valuesRecord = NativeRecord(fields: ["id": .string(id)]) } } }, pause: { months, resume in pause(months: months, resume: resume, checkID: id) }, transfer: { movingCheck = id }, attach: { openReceipts(id) }, remove: { removingCheck = id })
+    private func checkRow(_ id: String, presentation: NativeCheckPresentation, receipts: [NativeRecord]) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            NativeInlineCheckRow(fields: checkBinding(id), money: task.isMoney, editable: editable && !loading && !closing, saving: saving, monthly: task.fields["repeat"]?.object.text("frequency") == "monthly" && !task.id.isEmpty, canTransfer: !task.id.isEmpty, presentation: presentation, payment: { openPayment(id) }, values: { autosave?.cancel(); Task { if await commit(closing: false) { valuesRecord = NativeRecord(fields: ["id": .string(id)]) } } }, pause: { months, resume in pause(months: months, resume: resume, checkID: id) }, transfer: { movingCheck = id }, submit: registerCheck, viewReceipts: receipts.isEmpty ? nil : {
+                if receipts.count == 1, let file = receipts.first { previewReceipt(file) }
+                else { receiptTarget = NativeReceiptTarget(task: task, checkID: id, viewOnly: true) }
+            }, attach: { openReceipts(id) }, remove: { removingCheck = id })
+            if let file = receipts.last {
+                Button { previewReceipt(file) } label: {
+                    HStack(spacing: 6) {
+                        NativeReceiptThumbnail(api: store.api, file: file)
+                        if receipts.count > 1 { Text("+\(receipts.count - 1)").font(.caption2).foregroundStyle(.secondary) }
+                    }
+                }.buttonStyle(.borderless).padding(.leading, 34).padding(.bottom, 4)
+                    .accessibilityLabel("Visualizar comprovante " + file.fields.text("name"))
+            }
+        }
     }
     private var reorderSheet: some View {
         NavigationStack {
@@ -253,7 +298,19 @@ struct NativeTaskEditor: View {
     private func addCheck() {
         let value = newCheck.trimmingCharacters(in: .whitespacesAndNewlines); guard !value.isEmpty else { return }
         guard task.checks.count < 100 else { failure = "Limite de 100 subtarefas por tarefa."; return }
-        var checks = task.checks.map { JSONValue.object($0.fields) }; checks.append(.object(["id": .string(newCheckID), "text": .string(value), "done": .bool(false), "repeatMonthly": .bool(true)])); task.fields["checklist"] = .array(checks); newCheck = ""; newCheckID = UUID().uuidString
+        var checks = task.checks.map { JSONValue.object($0.fields) }; checks.append(.object(["id": .string(newCheckID), "text": .string(String(value.prefix(300))), "done": .bool(false), "repeatMonthly": .bool(true)])); task.fields["checklist"] = .array(checks); newCheck = ""; newCheckID = UUID().uuidString
+    }
+    private func registerCheck() {
+        guard editable else { return }
+        addCheck()
+        Task { @MainActor in
+            await Task.yield()
+            newCheckFocused = true
+            if !task.id.isEmpty && !saving && valid && task != baseline {
+                autosave?.cancel()
+                await commit(closing: false)
+            }
+        }
     }
     private func text(_ key: String, fallback: String = "") -> Binding<String> {
         Binding(get: { task.fields[key]?.string ?? fallback }, set: { task.fields[key] = .string($0) })

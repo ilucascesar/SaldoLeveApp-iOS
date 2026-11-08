@@ -401,11 +401,12 @@ func verifyReceiptImport() throws {
     check(importedPDF.name == "Comprovante Caixa.pdf" && importedPDF.type == "application/pdf" && importedPDF.data == pdf, "Shared PDF preserves its bytes and safe filename")
     try (pdf + Data(count: 2_097_152)).write(to: file)
     check((try? SharedReceipt.readFile(at: file, suggestedName: nil)) == nil, "Oversized shared PDF is rejected")
-    try Data(base64Encoded: "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")!.write(to: file)
+    let gif = Data(base64Encoded: "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")!
+    try gif.write(to: file)
     let image = try SharedReceipt.readFile(at: file, suggestedName: "Imagem.gif")
-    check(image.name == "Imagem.jpg" && image.type == "image/jpeg" && image.data.starts(with: [0xff, 0xd8]), "Shared images become JPEG attachments")
+    check(image.name == "Imagem.gif" && image.type == "image/gif" && image.data == gif, "Shared images within the limit preserve exact file bytes")
     try Data("not a receipt".utf8).write(to: file)
     check((try? SharedReceipt.readFile(at: file, suggestedName: "Invalid.pdf")) == nil, "An extension alone does not make an invalid file a receipt")
 }
 try! verifyReceiptImport()
-print("Receipt import: PDF bytes, image conversion, filename and file limits passed.")
+print("Receipt import: exact PDF/image bytes, filename and file limits passed.")

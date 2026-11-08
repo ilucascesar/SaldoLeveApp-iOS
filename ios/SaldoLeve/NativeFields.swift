@@ -221,6 +221,8 @@ struct NativeInlineCheckRow: View {
     var values: () -> Void = {}
     var pause: (Int, Bool) -> Void = { _, _ in }
     var transfer: () -> Void = {}
+    var submit: () -> Void = {}
+    var viewReceipts: (() -> Void)? = nil
     var attach: () -> Void
     var remove: () -> Void
     @State private var amount = false
@@ -349,7 +351,8 @@ struct NativeInlineCheckRow: View {
         }.disabled(!editable || saving).accessibilityLabel(done ? "Reabrir subtarefa" : money ? "Registrar pagamento" : "Concluir subtarefa")
     }
     private func title(size: CGFloat, weight: Font.Weight, minHeight: CGFloat) -> some View {
-        TextField("Nome da subtarefa", text: Binding(get: { fields.text("text") }, set: { fields["text"] = .string($0) }), axis: .vertical)
+        TextField("Nome da subtarefa", text: Binding(get: { fields.text("text") }, set: { fields["text"] = .string(String($0.prefix(300))) }))
+            .submitLabel(.next).onSubmit(submit)
             .font(.system(size: size, weight: weight)).strikethrough(done, color: .secondary)
             .foregroundStyle(done ? Color.secondary : Color.primary).lineLimit(1...8)
             .frame(minHeight: minHeight).disabled(!editable)
@@ -380,6 +383,8 @@ struct NativeInlineCheckRow: View {
     }
     private var menu: some View {
         Menu {
+            if let viewReceipts { Button(action: viewReceipts) { Label("Visualizar comprovante", systemImage: "doc.text.magnifyingglass") } }
+            if editable && !saving {
             Button { date = true } label: { Label("Data e horário", systemImage: "calendar") }
             Button { attach() } label: { Label("Anexos e comprovantes", systemImage: "paperclip") }
             if money { if !done { Button("Pagar / antecipar") { payment() } }; Button(done ? "Valores original e pago" : "Alterar valor original") { if done { values() } else { amount = true } } }
@@ -390,6 +395,7 @@ struct NativeInlineCheckRow: View {
             }
             if canTransfer { Button("Transferir para outra tarefa") { transfer() } }
             Button("Remover subtarefa", role: .destructive) { remove() }
-        } label: { Image(systemName: "ellipsis").foregroundStyle(.secondary).frame(width: 22, height: p.compact || p.style == "ledger" ? 36 : 40) }.disabled(!editable || saving).accessibilityLabel("Mais opções da subtarefa")
+            }
+        } label: { Image(systemName: "ellipsis").foregroundStyle(.secondary).frame(width: 22, height: p.compact || p.style == "ledger" ? 36 : 40) }.disabled((!editable || saving) && viewReceipts == nil).accessibilityLabel("Mais opções da subtarefa")
     }
 }

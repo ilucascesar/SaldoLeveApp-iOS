@@ -61,8 +61,14 @@ struct SharedReceipt {
         }
         let options = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithURL(url as CFURL, options),
-              let identifier = CGImageSourceGetType(source) as String?, UTType(identifier)?.conforms(to: .image) == true else {
+              let identifier = CGImageSourceGetType(source) as String?, let format = UTType(identifier), format.conforms(to: .image) else {
             throw NativeFailure("O arquivo precisa ser um PDF ou uma imagem válida.")
+        }
+        if let ext = format.preferredFilenameExtension, let type = format.preferredMIMEType {
+            try file.seek(toOffset: 0)
+            if let bytes = try file.read(upToCount: maxBytes + 1), !bytes.isEmpty, bytes.count <= maxBytes {
+                return SharedReceipt(name: name + "." + ext, type: type, data: bytes)
+            }
         }
         let thumbnailOptions: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
                                                 kCGImageSourceCreateThumbnailWithTransform: true,
