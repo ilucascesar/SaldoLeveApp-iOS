@@ -285,7 +285,7 @@ struct NativeTaskEditor: View {
     }
     private func checkRow(_ id: String, presentation: NativeCheckPresentation, receipts: [NativeRecord]) -> some View {
         let canAttach = editable && !loading && !closing
-        VStack(alignment: .leading, spacing: 3) {
+        return VStack(alignment: .leading, spacing: 3) {
             NativeInlineCheckRow(fields: checkBinding(id), money: task.isMoney, editable: canAttach, saving: saving, monthly: task.fields["repeat"]?.object.text("frequency") == "monthly" && !task.id.isEmpty, canTransfer: !task.id.isEmpty, presentation: presentation, payment: { openPayment(id) }, values: { autosave?.cancel(); Task { if await commit(closing: false) { valuesRecord = NativeRecord(fields: ["id": .string(id)]) } } }, pause: { months, resume in pause(months: months, resume: resume, checkID: id) }, transfer: { movingCheck = id }, submit: registerCheck, viewReceipts: receipts.isEmpty ? nil : {
                 if receipts.count == 1, let file = receipts.first { previewReceipt(file) }
                 else { receiptTarget = NativeReceiptTarget(task: task, checkID: id, viewOnly: true) }
