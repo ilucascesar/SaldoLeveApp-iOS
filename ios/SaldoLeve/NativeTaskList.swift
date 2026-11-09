@@ -322,7 +322,7 @@ struct NativeTaskRow: View {
                     HStack(alignment: .firstTextBaseline, spacing: 5) { if task.fields.flag("pinned") { Image(systemName: "pin.fill").font(.system(size: 10)).foregroundStyle(nativeBlue) }; Text(task.title).font(.system(size: 16 * store.layout.textScale, weight: .medium)).strikethrough(task.isDone).foregroundStyle(task.isDone ? Color(uiColor: .secondaryLabel) : Color(uiColor: .label)).multilineTextAlignment(.leading) }
                     if !task.fields.text("body").isEmpty { Text(task.fields.text("body")).font(.system(size: 12)).foregroundStyle(Color(uiColor: .secondaryLabel)).lineLimit(2).multilineTextAlignment(.leading) }
                     ViewThatFits(in: .horizontal) { HStack(spacing: 9) { dateMeta; otherMeta }; VStack(alignment: .leading, spacing: 4) { dateMeta; otherMeta } }
-                    if store.layout.taskShowAmounts && task.isMoney { Text((task.moneyMode == "receive" ? "A receber: " : "A pagar: ") + NativeDate.money(task.pendingAmount)).font(.system(size: 12)).foregroundStyle(Color(uiColor: .secondaryLabel)) }
+                    if store.layout.taskShowAmounts, let pending = task.pendingAmount { Text("Total pendente " + NativeDate.money(pending)).font(.system(size: 12)).foregroundStyle(Color(uiColor: .secondaryLabel)) }
                     if store.layout.taskShowTags && !task.tags.isEmpty { Text(task.tags.map { "#" + $0 }.joined(separator: "  ")).font(.system(size: 11)).foregroundStyle(nativeBlue.opacity(0.85)) }
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8).contentShape(Rectangle())
             }

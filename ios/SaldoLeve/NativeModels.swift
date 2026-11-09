@@ -109,6 +109,12 @@ struct NativeTask: Codable, Identifiable, Equatable {
     var nextDate: Date? { dates.min() }
     var moneyMode: String { fields.text("moneyMode") }
     var isMoney: Bool { ["pay", "receive"].contains(moneyMode) }
+    var nextPendingCheck: NativeCheck? {
+        checks.filter { !$0.done && !$0.paused }.min { ($0.date ?? .distantFuture) < ($1.date ?? .distantFuture) }
+    }
+    func usesManualPayment(_ check: NativeCheck) -> Bool {
+        isMoney && check.textAmount == nil && (check.fields["amountCents"]?.number != nil || check.fields.flag("variableAmount"))
+    }
     var completionLabel: String { isMoney ? (moneyMode == "receive" ? "Recebido" : "Pago") : "Concluir" }
     static func draft(categoryID: String) -> NativeTask {
         NativeTask(["listId": .string(categoryID), "title": .string(""), "body": .string(""), "status": .string("todo"),
@@ -117,11 +123,31 @@ struct NativeTask: Codable, Identifiable, Equatable {
                     "captureKey": .string(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased())])
     }
 }
+enum NativeSubtaskValue {
+    private static let pattern = try! NSRegularExpression(pattern: #"R\$[\s\p{Zs}]*([0-9]{1,3}(?:\.[0-9]{3})+|[0-9]+)(?:,([0-9]{1,2}))?(?![0-9]|[.,][0-9])"#, options: .caseInsensitive)
+
+    static func cents(in title: String) -> Int? {
+        var total: Int?
+        for match in pattern.matches(in: title, range: NSRange(title.startIndex..., in: title)) {
+            guard let integer = Range(match.range(at: 1), in: title),
+                  let whole = Int(title[integer].replacingOccurrences(of: ".", with: "")), whole <= 999_999_999 else { continue }
+            let decimal = Range(match.range(at: 2), in: title).map { String(title[$0]) } ?? ""
+            let cents = whole * 100 + (Int(decimal.padding(toLength: 2, withPad: "0", startingAt: 0)) ?? 0)
+            let sum = (total ?? 0) + cents
+            guard sum <= 99_999_999_999 else { return nil }
+            total = sum
+        }
+        return total
+    }
+}
+
 struct NativeCheck: Identifiable, Equatable {
     var fields: JSONObject
     init(_ fields: JSONObject) { self.fields = fields }
     var id: String { fields.text("id") }
     var title: String { fields.text("text") }
+    var textAmount: Int? { NativeSubtaskValue.cents(in: title) }
+    var amount: Double? { textAmount.map(Double.init) ?? fields["amountCents"]?.number }
     var done: Bool { fields.flag("done") }
     var date: Date? { NativeDate.parse(fields.text("remindAt")) }
     var paused: Bool { NativeDate.parse(fields.text("pausedUntil")).map { $0 > Date() } ?? false }
@@ -194,8 +220,13 @@ extension NativeTask {
     var listDate: Date? { NativeDate.parse(fields.text("dueAt")) ?? nextDate }
     var tags: [String] { fields["tags"]?.array.map(\.string) ?? [] }
     var pendingAmount: Double? {
-        let values = checks.isEmpty ? [fields["amountCents"]?.number] : checks.filter { !$0.done }.map { $0.fields["amountCents"]?.number }
-        return values.contains(where: { $0 != nil }) ? values.compactMap { $0 }.reduce(0, +) : nil
+        let subtasks = checks
+        if subtasks.isEmpty { return fields["amountCents"]?.number.map { isDone ? 0 : $0 } }
+        var total: Double?
+        for check in subtasks {
+            if let amount = check.amount { total = (total ?? 0) + (check.done ? 0 : amount) }
+        }
+        return total
     }
     func isOverdue(now: Date = Date(), calendar: Calendar = .current) -> Bool {
         guard isActive, let date = listDate else { return false }
@@ -466,10 +497,6 @@ enum NativeCheckState {
     static func days(_ check: NativeCheck, now: Date = Date(), calendar: Calendar = .current) -> Int? {
         guard let date = check.date else { return nil }
         return calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: date)).day
-    }
-    // The pending subtask that is due first.
-    static func next(_ checks: [NativeCheck]) -> String? {
-        checks.filter { !$0.done && !$0.paused }.min { ($0.date ?? .distantFuture) < ($1.date ?? .distantFuture) }?.id
     }
 }
 

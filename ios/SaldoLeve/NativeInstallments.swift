@@ -1,38 +1,5 @@
 import SwiftUI
 
-struct NativeTaskMoneyTotals {
-    let nominal: Double, paid: Double, discount: Double, remaining: Double
-    let paidCount: Int, unknown: Int
-    init(_ task: NativeTask) {
-        let checks = task.checks
-        var nominalTotal: Double = 0, paidTotal: Double = 0, discountTotal: Double = 0, pendingTotal: Double = 0
-        for check in checks {
-            let value: Double = check.fields["amountCents"]?.number ?? 0
-            let actual: Double = check.fields["paidAmountCents"]?.number ?? value
-            nominalTotal += value
-            if check.done { paidTotal += actual; discountTotal += max(0, value - actual) }
-            else { pendingTotal += value }
-        }
-        nominal = nominalTotal; paid = paidTotal; discount = discountTotal; remaining = pendingTotal
-        paidCount = checks.filter(\.done).count
-        unknown = checks.filter { $0.fields["amountCents"]?.number == nil }.count
-    }
-}
-struct NativeTaskMoneySummary: View {
-    let task: NativeTask
-    var body: some View {
-        let totals = NativeTaskMoneyTotals(task)
-        Section("Valores desta tarefa") {
-            LabeledContent("Total nominal", value: NativeDate.money(totals.nominal))
-            LabeledContent("Pago efetivamente", value: NativeDate.money(totals.paid))
-            LabeledContent("Descontos registrados", value: NativeDate.money(totals.discount))
-            LabeledContent("Saldo nominal restante", value: NativeDate.money(totals.remaining))
-            LabeledContent("Parcelas pagas", value: "\(totals.paidCount) de \(task.checks.count)")
-            if totals.unknown > 0 { Text("\(totals.unknown) parcelas ainda sem valor; os totais são parciais.").font(.footnote).foregroundStyle(.orange) }
-            Text("O saldo nominal não é uma cotação de quitação. Registre a oferta do banco ao antecipar. Este resumo considera os valores presentes nesta tarefa; o histórico mantém os pagamentos de ciclos anteriores.").font(.footnote).foregroundStyle(.secondary)
-        }
-    }
-}
 struct NativeInstallmentGenerator: View {
     @Binding var task: NativeTask
     @Environment(\.dismiss) private var dismiss
@@ -96,7 +63,7 @@ struct NativeInstallmentPayment: View {
     @State private var issue: String?
     @State private var confirming = false
     @State private var working = false
-    private var pending: [NativeCheck] { task.checks.filter { !$0.done && !$0.paused } }
+    private var pending: [NativeCheck] { task.checks.filter { !$0.done && !$0.paused && task.usesManualPayment($0) } }
     private var valid: Bool { (try? draft.applying(to: task)) != nil }
     var body: some View {
         NavigationStack {
@@ -138,7 +105,12 @@ struct NativeInstallmentPayment: View {
                 .disabled(working)
                 .interactiveDismissDisabled(working)
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() }.disabled(working) }; ToolbarItem(placement: .confirmationAction) { Button(working ? "Salvando…" : "Registrar") { confirming = true }.disabled(!valid || working) }; ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Pronto") { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) } } }
-                .onAppear { if !initialized { draft = NativeInstallmentDraft(task, checkID: initialCheckID); initialized = true } }
+                .onAppear {
+                    if !initialized {
+                        if let checkID = initialCheckID ?? pending.first?.id { draft = NativeInstallmentDraft(task, checkID: checkID) }
+                        initialized = true
+                    }
+                }
                 .confirmationDialog("Registrar os valores das parcelas selecionadas?", isPresented: $confirming, titleVisibility: .visible) { Button("Confirmar pagamento") { Task { await pay() } } }
         }
     }

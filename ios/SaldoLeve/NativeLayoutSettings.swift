@@ -162,7 +162,6 @@ struct NativeLayoutDetail: View {
                 Toggle("Mostrar concluídas abertas", isOn: $layout.taskDetailExpandDone)
             } header: { Text("Organização") } footer: { Text("Grupos podem ser recolhidos tocando no título.") }
             Section {
-                Toggle("Destacar a próxima pendência", isOn: $layout.taskDetailHighlightNext)
                 Toggle("Situação colorida (Atrasada, Hoje, Em 3 dias)", isOn: $layout.taskDetailPills)
                 Toggle("Data em cada subtarefa", isOn: $layout.taskDetailMetadata)
                 Toggle("Valor em cada subtarefa", isOn: $layout.taskDetailAmounts)

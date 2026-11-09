@@ -33,7 +33,6 @@ struct NativeTaskEditor: View {
     @State private var failure: String?
     @State private var removingCheck: String?
     @State private var pauseMenu = false
-    @State private var moneyOptions = false
     @State private var remindersOptions = false
     @State private var locationOptions = false
     private var locationLabel: String {
@@ -100,7 +99,6 @@ struct NativeTaskEditor: View {
                 Button("OK") { receiptIssue = nil }
             } message: { Text(receiptIssue ?? "") }
             .sheet(isPresented: $remindersOptions) { NativeReminderOptions(fields: $task.fields) }
-            .sheet(isPresented: $moneyOptions) { NativeMoneyOptions(fields: $task.fields) }
             .sheet(isPresented: $locationOptions) { NativeTaskLocationSheet(fields: $task.fields, store: store) }
             .sheet(isPresented: $reordering) { reorderSheet }
             .sheet(isPresented: Binding(get: { movingCheck != nil }, set: { if !$0 { movingCheck = nil } })) { transferSheet }
@@ -135,7 +133,7 @@ struct NativeTaskEditor: View {
                 HStack(alignment: .top, spacing: 10) {
                     Button {
                         guard !task.id.isEmpty else { return }
-                        if task.isMoney && !task.checks.isEmpty && !task.isDone { openPayment(); return }
+                        if !task.isDone, let next = task.nextPendingCheck, task.usesManualPayment(next) { openPayment(next.id); return }
                         Task { if await commit(closing: false) { await store.complete(task); await reload() } }
                     } label: { Image(systemName: task.isDone ? "checkmark.circle.fill" : "circle").font(.system(size: 25, weight: .light)).frame(width: 30, height: 40) }.disabled(task.id.isEmpty || !editable || saving || !store.canWrite).accessibilityLabel(task.isDone ? "Reabrir tarefa" : task.completionLabel)
                     TextField("O que precisa ser feito?", text: text("title"), axis: .vertical).font(.system(size: 23, weight: .semibold)).lineLimit(1...6).disabled(!editable || loading || closing).accessibilityIdentifier("task-title")
@@ -149,12 +147,12 @@ struct NativeTaskEditor: View {
                                 ForEach(store.editableCategories.filter { entry in entry.fields.text("ownerId") == store.user?.id && store.snapshot.lists.first(where: { $0.id == task.categoryID })?.fields.text("ownerId") == store.user?.id }) { entry in Button(entry.name) { move(to: entry.id) } }
                             }
                         } label: { NativeChip(title: store.category(task), icon: "circle.fill", color: Color(nativeHex: store.snapshot.lists.first(where: { $0.id == task.categoryID })?.fields.text("color") ?? "#1f6feb")) }.disabled(!editable || saving)
-                        Button { moneyOptions = true } label: { NativeChip(title: task.moneyMode == "pay" ? "A pagar" : task.moneyMode == "receive" ? "A receber" : "Normal", active: task.isMoney) }.disabled(!editable || saving)
                         Button { remindersOptions = true } label: { NativeChip(title: reminderLabel, icon: "alarm", active: task.fields["repeat"]?.object.text("frequency") == "monthly") }.disabled(!editable || saving)
                         Button { locationOptions = true } label: { NativeChip(title: locationLabel, icon: "location", active: NativeLocationReminder(task.fields) != nil) }.disabled(!editable || saving).accessibilityIdentifier("task-location")
                     }.padding(.vertical, 3)
                 }
                 TextField("Descrição ou anotações…", text: text("body"), axis: .vertical).font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(2...14).disabled(!editable || loading || closing)
+                if let pending = task.pendingAmount { NativeTaskPendingAmount(amount: pending) }
                 if !saveStatus.isEmpty { Label(saveStatus, systemImage: saving ? "arrow.triangle.2.circlepath" : task == baseline ? "checkmark" : "pencil").font(.system(size: 11)).foregroundStyle(.secondary).accessibilityElement(children: .ignore).accessibilityLabel(saveStatus).accessibilityIdentifier("task-save-status") }
                 if let syncNotice {
                     VStack(alignment: .leading, spacing: 8) {
@@ -165,12 +163,11 @@ struct NativeTaskEditor: View {
                 }
             }.listRowSeparator(.hidden).listRowBackground(Color.clear)
             checklistSection
-            if task.isMoney && !task.checks.isEmpty { NativeTaskMoneySummary(task: task) }
             if showComments || !comments.isEmpty { commentsSection }
             Section {
                 DisclosureGroup {
                     Button("Gerar parcelas ou série") { installmentGenerator = true }.disabled(!editable || saving)
-                    if task.isMoney && !task.checks.isEmpty { Button { openPayment() } label: { Label("Pagar / antecipar parcelas", systemImage: "creditcard") }.disabled(!editable || saving || !store.canWrite) }
+                    if task.checks.contains(where: task.usesManualPayment) { Button { openPayment() } label: { Label("Pagar / antecipar parcelas", systemImage: "creditcard") }.disabled(!editable || saving || !store.canWrite) }
                     NativeDateField(fields: $task.fields, key: "startAt", title: "Início")
                     Toggle("Fixar no início", isOn: flag("pinned"))
                     TextField("Etiquetas, separadas por vírgula", text: Binding(get: { task.tags.joined(separator: ", ") }, set: { task.fields["tags"] = .array($0.split(separator: ",").map { .string($0.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "#", with: "")) }) }))
@@ -203,7 +200,10 @@ struct NativeTaskEditor: View {
                 serverReady = store.canWrite
             } else if store.editorSyncEnabled { await reload() }
             loading = false
-            if store.paymentTaskID == task.id { store.paymentTaskID = nil; if editable { openPayment() } }
+            if store.paymentTaskID == task.id {
+                store.paymentTaskID = nil
+                if editable, let next = task.nextPendingCheck, task.usesManualPayment(next) { openPayment(next.id) }
+            }
         }
         .onChange(of: task) { value in
             if !loading && !saved && editable && value != baseline { saveStatus = "Alterações ainda não salvas no servidor"; scheduleAutosave() }
@@ -230,6 +230,31 @@ struct NativeTaskEditor: View {
         guard editable, !saving else { return }
         autosave?.cancel()
         installmentSelection = NativeInstallmentSelection(checkID: id)
+    }
+    private func reopenCheck(_ id: String) {
+        autosave?.cancel()
+        Task {
+            guard await commit(closing: false) else { return }
+            let itemID = task.id, revision = task.revision
+            do {
+                let details = try await store.api.get(JSONObject.self, action: "org_check_values", query: ["id": itemID, "checkId": id])
+                guard details.record("item").integer("revision") == revision, task.revision == revision else {
+                    throw NativeFailure("A tarefa mudou. Atualize antes de reabrir a subtarefa.")
+                }
+                let payment = details.record("payment")
+                if !payment.text("id").isEmpty {
+                    _ = try await store.mutate("org_history_undo", ["id": .string(payment.text("id")),
+                        "revision": .number(Double(payment.integer("revision"))), "taskRevision": .number(Double(revision))])
+                    await reload()
+                } else {
+                    let binding = checkBinding(id)
+                    var fields = binding.wrappedValue
+                    fields["done"] = .bool(false)
+                    binding.wrappedValue = fields
+                    await commit(closing: false)
+                }
+            } catch { store.report(error) }
+        }
     }
     private func openReceipts(_ checkID: String = "") {
         guard !saving, !loading else { return }
@@ -263,10 +288,11 @@ struct NativeTaskEditor: View {
     // Style, grouping and details come from Configurações → Layout → Tarefa aberta.
     @ViewBuilder private var checklistSection: some View {
         let checks = task.checks
+        let legacyValues = checks.contains(where: task.usesManualPayment)
         let receipts = Dictionary(grouping: attachments.filter { nativeCurrentReceipt($0, task: task) }) { $0.fields.text("checkId") }
-        NativeTaskChecklist(checks: checks, money: task.isMoney, receive: task.moneyMode == "receive", pendingAmount: task.isMoney ? task.pendingAmount : nil, layout: store.layout, collapsed: collapsedGroups, toggle: { id in
+        NativeTaskChecklist(checks: checks, money: legacyValues, receive: task.moneyMode == "receive", layout: store.layout, collapsed: collapsedGroups, toggle: { id in
             withAnimation(.easeInOut(duration: 0.2)) { if collapsedGroups.contains(id) { collapsedGroups.remove(id) } else { collapsedGroups.insert(id) } }
-        }) { check, presentation in checkRow(check.id, presentation: presentation, receipts: receipts[check.id] ?? []) }
+        }) { check, presentation in checkRow(check, presentation: presentation, receipts: receipts[check.id] ?? [], legacyValues: legacyValues) }
         if editable {
             Section {
                 HStack(spacing: 10) {
@@ -283,10 +309,17 @@ struct NativeTaskEditor: View {
             }
         }
     }
-    private func checkRow(_ id: String, presentation: NativeCheckPresentation, receipts: [NativeRecord]) -> some View {
+    private func checkRow(_ check: NativeCheck, presentation: NativeCheckPresentation, receipts: [NativeRecord], legacyValues: Bool) -> some View {
+        let id = check.id
         let canAttach = editable && !loading && !closing
+        let recorded = (check.amount != nil || task.usesManualPayment(check)) && baseline.checks.contains { $0.id == id && $0.done }
         return VStack(alignment: .leading, spacing: 3) {
-            NativeInlineCheckRow(fields: checkBinding(id), money: task.isMoney, editable: canAttach, saving: saving, monthly: task.fields["repeat"]?.object.text("frequency") == "monthly" && !task.id.isEmpty, canTransfer: !task.id.isEmpty, presentation: presentation, payment: { openPayment(id) }, values: { autosave?.cancel(); Task { if await commit(closing: false) { valuesRecord = NativeRecord(fields: ["id": .string(id)]) } } }, pause: { months, resume in pause(months: months, resume: resume, checkID: id) }, transfer: { movingCheck = id }, submit: registerCheck, viewReceipts: receipts.isEmpty ? nil : {
+            NativeInlineCheckRow(fields: checkBinding(id), money: legacyValues, editable: canAttach, saving: saving,
+                monthly: task.fields["repeat"]?.object.text("frequency") == "monthly" && !task.id.isEmpty, canTransfer: !task.id.isEmpty,
+                presentation: presentation, payment: { openPayment(id) },
+                values: { autosave?.cancel(); Task { if await commit(closing: false) { valuesRecord = NativeRecord(fields: ["id": .string(id)]) } } },
+                pause: { months, resume in pause(months: months, resume: resume, checkID: id) }, transfer: { movingCheck = id },
+                submit: registerCheck, reopen: recorded ? { reopenCheck(id) } : nil, viewReceipts: receipts.isEmpty ? nil : {
                 if receipts.count == 1, let file = receipts.first { previewReceipt(file) }
                 else { receiptTarget = NativeReceiptTarget(task: task, checkID: id, viewOnly: true) }
             }, receiptShortcut: canAttach, attach: { openReceipts(id) }, remove: { removingCheck = id })
@@ -428,7 +461,7 @@ struct NativeTaskEditor: View {
         Task { try? await Task.sleep(nanoseconds: 3_000_000_000); if saveStatus == status && !saving { saveStatus = "" } }
     }
     private func dismissEditingSheets() {
-        installmentSelection = nil; installmentGenerator = false; moneyOptions = false; remindersOptions = false; reordering = false; movingCheck = nil
+        installmentSelection = nil; installmentGenerator = false; remindersOptions = false; reordering = false; movingCheck = nil
     }
     private func connectionLost() {
         dismissEditingSheets()
@@ -494,7 +527,7 @@ struct NativeTaskEditor: View {
         NavigationStack {
             List {
                 Text("A subtarefa será transferida com datas, pagamentos e comprovantes. Quem tem acesso ao destino poderá ver esses registros.").font(.footnote).foregroundStyle(.secondary)
-                ForEach(store.snapshot.items.filter { $0.id != task.id && $0.isActive && store.canEdit($0) && (!task.isMoney || $0.moneyMode == task.moneyMode) }) { target in
+                ForEach(store.snapshot.items.filter { $0.id != task.id && $0.isActive && store.canEdit($0) }) { target in
                     Button { transferTarget = target } label: { VStack(alignment: .leading, spacing: 4) { Text(target.title); Text(store.category(target)).font(.caption).foregroundStyle(.secondary) } }
                 }
             }.navigationTitle("Transferir subtarefa").navigationBarTitleDisplayMode(.inline).toolbar { Button("Cancelar") { movingCheck = nil } }

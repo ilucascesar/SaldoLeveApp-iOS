@@ -306,11 +306,11 @@ final class NativeStore: ObservableObject {
         return canonical
     }
     func complete(_ task: NativeTask) async {
-        if task.isMoney && !task.isDone && !task.checks.isEmpty { paymentTaskID = task.id; openedTask = task; return }
-        if task.isMoney && !task.isDone {
-            let pending = task.checks.filter { !$0.done && !$0.paused }.min { ($0.date ?? .distantFuture) < ($1.date ?? .distantFuture) }
-            let amount = task.checks.isEmpty ? task.fields["amountCents"]?.number : pending?.fields["amountCents"]?.number
-            if amount == nil { openedTask = task; message = "Informe o valor da pendência antes de registrar o pagamento."; return }
+        if !task.isDone, let next = task.nextPendingCheck, task.usesManualPayment(next) {
+            paymentTaskID = task.id; openedTask = task; return
+        }
+        if task.isMoney && !task.isDone && task.checks.isEmpty && task.fields["amountCents"]?.number == nil {
+            message = "Informe o valor da pendência antes de registrar o pagamento."; return
         }
         do { _ = try await mutate("org_complete_item", ["id": .string(task.id), "revision": .number(Double(task.revision))]) }
         catch { report(error) }

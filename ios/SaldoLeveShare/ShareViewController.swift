@@ -53,7 +53,7 @@ private struct ReceiptDestination {
 
     func completing(with installment: NativeInstallmentDraft) throws -> JSONObject {
         guard canComplete else { throw NativeFailure("Esta subtarefa já está concluída ou precisa ser retomada no SaldoLeve.") }
-        if task.isMoney { return try installment.applying(to: task).fields }
+        if task.usesManualPayment(check) { return try installment.applying(to: task).fields }
         var fields = task.fields
         fields["checklist"] = .array(task.checks.map { item in
             var checkFields = item.fields
@@ -200,7 +200,7 @@ private struct ReceiptDestination {
             }
             if destination.canComplete {
                 Section("Quer concluir esta subtarefa?") {
-                    if destination.task.isMoney {
+                    if destination.task.usesManualPayment(destination.check) {
                         let id = destination.check.id
                         TextField("Valor original (R$)", text: Binding(get: { installment.originals[id] ?? "" }, set: { installment.setOriginal($0, id: id) })).keyboardType(.decimalPad)
                         TextField(destination.task.moneyMode == "receive" ? "Valor recebido (R$)" : "Valor pago (R$)", text: Binding(get: { installment.paid[id] ?? "" }, set: { installment.setPaid($0, id: id) })).keyboardType(.decimalPad)

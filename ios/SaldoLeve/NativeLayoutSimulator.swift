@@ -345,7 +345,7 @@ struct NativeSimAgenda: View {
                     if layout.taskShowCategory && !task.categoryID.isEmpty { HStack(spacing: 4) { Circle().fill(Color(nativeHex: store.taskIndex.categories[task.categoryID]?.fields.text("color") ?? "#1f6feb")).frame(width: 5, height: 5); Text(store.category(task)).lineLimit(1) } }
                     if !task.checks.isEmpty { Label("\(task.checks.filter(\.done).count)/\(task.checks.count)", systemImage: "checklist") }
                 }.font(.system(size: 12)).foregroundStyle(.secondary)
-                if layout.taskShowAmounts && task.isMoney { Text((task.moneyMode == "receive" ? "A receber: " : "A pagar: ") + NativeDate.money(task.pendingAmount)).font(.system(size: 12)).foregroundStyle(.secondary) }
+                if layout.taskShowAmounts, let pending = task.pendingAmount { Text("Total pendente " + NativeDate.money(pending)).font(.system(size: 12)).foregroundStyle(.secondary) }
                 if layout.taskShowTags && !task.tags.isEmpty { Text(task.tags.map { "#" + $0 }.joined(separator: "  ")).font(.system(size: 11)).foregroundStyle(nativeBlue.opacity(0.85)) }
             }
             Spacer(minLength: 0)
@@ -369,17 +369,19 @@ struct NativeSimTask: View {
     }
     var body: some View {
         let current = task, checks = current.checks
+        let legacyValues = checks.contains(where: current.usesManualPayment)
         VStack(spacing: 0) {
             NativeSimStatusBar()
             HStack { Text("Fechar"); Spacer(); Text(current.categoryID.isEmpty ? "Financeiro" : store.category(current)).font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary); Spacer(); Text("Salvar").bold() }.font(.system(size: 16)).foregroundStyle(nativeBlue).padding(.horizontal, 18).padding(.vertical, 10)
             List {
                 Section {
                     HStack(alignment: .top, spacing: 10) { Image(systemName: "circle").font(.system(size: 25, weight: .light)).foregroundStyle(nativeBlue); Text(current.title).font(.system(size: 23, weight: .semibold)).lineLimit(2) }
-                    HStack(spacing: 7) { NativeChip(title: current.categoryID.isEmpty ? "Financeiro" : store.category(current), icon: "circle.fill"); NativeChip(title: current.moneyMode == "receive" ? "A receber" : current.isMoney ? "A pagar" : "Normal", active: current.isMoney); NativeChip(title: "Avisos", icon: "alarm") }
+                    HStack(spacing: 7) { NativeChip(title: current.categoryID.isEmpty ? "Financeiro" : store.category(current), icon: "circle.fill"); NativeChip(title: "Avisos", icon: "alarm") }
                     if !current.fields.text("body").isEmpty { Text(current.fields.text("body")).font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(2) }
+                    if let pending = current.pendingAmount { NativeTaskPendingAmount(amount: pending) }
                 }.listRowSeparator(.hidden).listRowBackground(Color.clear)
-                NativeTaskChecklist(checks: checks, money: current.isMoney, receive: current.moneyMode == "receive", pendingAmount: current.isMoney ? current.pendingAmount : nil, layout: layout, collapsed: layout.taskDetailExpandDone ? [] : ["done"]) { check, presentation in
-                    NativeInlineCheckRow(fields: .constant(check.fields), money: current.isMoney, editable: true, presentation: presentation, attach: {}, remove: {})
+                NativeTaskChecklist(checks: checks, money: legacyValues, receive: current.moneyMode == "receive", layout: layout, collapsed: layout.taskDetailExpandDone ? [] : ["done"]) { check, presentation in
+                    NativeInlineCheckRow(fields: .constant(check.fields), money: legacyValues, editable: true, presentation: presentation, attach: {}, remove: {})
                 }
             }.listStyle(.plain).scrollContentBackground(.hidden).scrollDisabled(true)
         }.background(nativePaper)

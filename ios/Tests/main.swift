@@ -313,7 +313,15 @@ var badDensity = NativeLayoutPreferences(); badDensity.taskDetailDensity = "huge
 check(badDensity.taskDetailDensity == "regular", "Unknown task detail density falls back to regular")
 let pendingCheck = NativeCheck(["id": .string("x"), "text": .string("Parcela"), "done": .bool(false), "remindAt": .string("2027-01-09T12:00:00Z")])
 check(NativeCheckState.of(pendingCheck, now: spokenNow, calendar: spokenCalendar) == "overdue", "A past subtask is overdue")
-check(NativeCheckState.next([pendingCheck, NativeCheck(["id": .string("y"), "text": .string("Outra"), "done": .bool(true)])]) == "x", "The next pending subtask is highlighted")
+check(NativeSubtaskValue.cents(in: "Parcela 12/60 · R$ 1.234,56 + taxa R$ 0,44") == 123500, "Subtask values use Brazilian cent precision and sum explicit currency amounts")
+check(NativeSubtaskValue.cents(in: "Parcela 12/60 · dia 15") == nil && NativeSubtaskValue.cents(in: "R$ 12,345 / R$ 1.23") == nil, "Plain numbers and malformed amounts are ignored")
+let amountTask = NativeTask(["moneyMode": .string("pay"), "checklist": .array([
+    .object(["id": .string("auto"), "text": .string("Internet R$\u{00a0}89,90"), "amountCents": .number(1200)]),
+    .object(["id": .string("legacy"), "text": .string("Valor anterior"), "amountCents": .number(1010)]),
+    .object(["id": .string("finished"), "text": .string("Pago R$ 1.000,00"), "done": .bool(true)])
+])])
+check(amountTask.pendingAmount == 10000 && amountTask.nextPendingCheck?.id == "auto", "The pending sum uses the title, legacy fallback and excludes completed subtasks")
+check(!amountTask.usesManualPayment(amountTask.checks[0]) && amountTask.usesManualPayment(amountTask.checks[1]), "Automatic values need no payment form; legacy installments retain it")
 print("Opened task styles: ledger preset, density and subtask situations passed.")
 
 let oldDisplay = try JSONDecoder().decode(SaldoWidgetDisplay.self, from: Data(#"{"scope":"all","count":5}"#.utf8))

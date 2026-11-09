@@ -12,7 +12,7 @@ struct NativeTaskDetailGroup: Identifiable {
 enum NativeTaskDetailLayout {
     static let names = ["elegant": "Sofisticado", "cards": "Cartões", "timeline": "Linha do tempo", "ledger": "Planilha", "minimal": "Simplificado"]
     static let summaries = [
-        "elegant": "Valor à direita, situação colorida e a próxima pendência em destaque.",
+        "elegant": "Situação colorida e vencimento junto ao nome da subtarefa.",
         "cards": "Cada subtarefa em um cartão com vencimento, valor e situação.",
         "timeline": "Datas à esquerda, ligadas por uma linha e separadas por mês.",
         "ledger": "Colunas numeradas de vencimento e valor. Ideal para parcelas.",
@@ -57,7 +57,6 @@ struct NativeCheckPresentation: Equatable {
     var state = "upcoming"
     var days: Int?
     var number: Int?
-    var highlight = false
     var first = false
     var last = false
     var stripe = false
@@ -94,7 +93,6 @@ struct NativeTaskChecklist<Row: View>: View {
     let checks: [NativeCheck]
     let money: Bool
     var receive = false
-    var pendingAmount: Double? = nil
     let layout: NativeLayoutPreferences
     let collapsed: Set<String>
     var toggle: (String) -> Void = { _ in }
@@ -102,7 +100,6 @@ struct NativeTaskChecklist<Row: View>: View {
     var body: some View {
         let style = layout.taskDetailLayout
         let groups = NativeTaskDetailLayout.groups(checks, grouping: layout.taskDetailGrouping)
-        let next = layout.taskDetailHighlightNext ? NativeCheckState.next(checks) : nil
         let numbers = Dictionary(uniqueKeysWithValues: checks.enumerated().map { ($0.element.id, $0.offset + 1) })
         let done = checks.filter(\.done).count
         ForEach(Array(groups.enumerated()), id: \.element.id) { groupIndex, group in
@@ -110,25 +107,34 @@ struct NativeTaskChecklist<Row: View>: View {
                 if !collapsed.contains(group.id) {
                     ForEach(Array(group.ids.enumerated()), id: \.element) { offset, id in
                         if let check = checks.first(where: { $0.id == id }) {
-                            let presentation = NativeCheckPresentation(style: style, state: NativeCheckState.of(check), days: NativeCheckState.days(check), number: layout.taskDetailNumbers || style == "ledger" ? numbers[id] : nil, highlight: next == id, first: offset == 0, last: offset == group.ids.count - 1, stripe: offset % 2 == 1, metadata: layout.taskDetailMetadata, amounts: layout.taskDetailAmounts, pills: layout.taskDetailPills, compact: layout.taskDetailDensity == "compact", receive: receive)
+                            let presentation = NativeCheckPresentation(style: style, state: NativeCheckState.of(check), days: NativeCheckState.days(check), number: layout.taskDetailNumbers || style == "ledger" ? numbers[id] : nil, first: offset == 0, last: offset == group.ids.count - 1, stripe: offset % 2 == 1, metadata: layout.taskDetailMetadata, amounts: layout.taskDetailAmounts, pills: layout.taskDetailPills, compact: layout.taskDetailDensity == "compact", receive: receive)
                             row(check, presentation).modifier(NativeTaskDetailRowChrome(presentation: presentation))
                         }
                     }
                 }
             } header: {
-                NativeTaskDetailGroupHeader(group: group, collapsed: collapsed.contains(group.id), progress: layout.taskDetailProgress && groupIndex == 0 && checks.count > 1 ? (done, checks.count) : nil, amount: layout.taskDetailProgress && groupIndex == 0 && money ? pendingAmount.map { (receive ? "A receber " : "A pagar ") + NativeDate.money($0) } : nil, columns: style == "ledger" && !collapsed.contains(group.id), money: money) { toggle(group.id) }
+                NativeTaskDetailGroupHeader(group: group, collapsed: collapsed.contains(group.id), progress: layout.taskDetailProgress && groupIndex == 0 && checks.count > 1 ? (done, checks.count) : nil, columns: style == "ledger" && !collapsed.contains(group.id), money: money) { toggle(group.id) }
             }
         }
     }
 }
 
-// Compact header: group title and count, plus (on the first group) a thin
-// progress bar and the pending amount. It never pushes the list down.
+struct NativeTaskPendingAmount: View {
+    let amount: Double
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("Total pendente").foregroundStyle(.secondary)
+            Text(NativeDate.money(amount)).fontWeight(.semibold).monospacedDigit()
+        }.font(.footnote).accessibilityElement(children: .combine)
+            .accessibilityIdentifier("task-pending-amount")
+    }
+}
+
+// The first group may also show the overall progress bar.
 struct NativeTaskDetailGroupHeader: View {
     let group: NativeTaskDetailGroup
     let collapsed: Bool
     var progress: (Int, Int)? = nil
-    var amount: String? = nil
     var columns = false
     var money = false
     var toggle: () -> Void = {}
@@ -140,7 +146,6 @@ struct NativeTaskDetailGroupHeader: View {
                     Text(group.title).font(.system(size: 13, weight: .semibold))
                     Text("\(group.ids.count)").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary).padding(.horizontal, 6).padding(.vertical, 1).background(Color.secondary.opacity(0.12), in: Capsule())
                     Spacer(minLength: 6)
-                    if let amount { Text(amount).font(.system(size: 11, weight: .semibold)).foregroundStyle(nativeBlue).lineLimit(1).minimumScaleFactor(0.8) }
                     if let progress {
                         Capsule().fill(nativeBlue.opacity(0.14)).frame(width: 46, height: 5)
                             .overlay(alignment: .leading) { Capsule().fill(nativeBlue).frame(width: 46 * CGFloat(progress.1 == 0 ? 0 : Double(progress.0) / Double(progress.1)), height: 5) }
@@ -173,7 +178,7 @@ struct NativeTaskDetailRowChrome: ViewModifier {
                 .listRowBackground(
                     RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(uiColor: .secondarySystemGroupedBackground))
                         .overlay(alignment: .leading) { UnevenRoundedStripe().fill(p.tint.opacity(p.state == "done" ? 0.35 : 0.9)).frame(width: 4) }
-                        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(p.highlight ? nativeBlue.opacity(0.55) : Color.primary.opacity(0.06), lineWidth: p.highlight ? 1.5 : 1))
+                        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.primary.opacity(0.06)))
                         .shadow(color: .black.opacity(p.state == "done" ? 0 : 0.05), radius: 6, y: 2)
                         .padding(.horizontal, 12).padding(.vertical, 4)
                 )
@@ -187,7 +192,7 @@ struct NativeTaskDetailRowChrome: ViewModifier {
             content
                 .listRowInsets(EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 8))
                 .listRowSeparator(.visible).listRowSeparatorTint(Color.primary.opacity(0.06))
-                .listRowBackground(p.highlight ? nativeBlue.opacity(0.08) : p.stripe ? Color.primary.opacity(0.03) : nativePaper)
+                .listRowBackground(p.stripe ? Color.primary.opacity(0.03) : nativePaper)
         case "minimal":
             content.listRowInsets(EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 8)).listRowSeparatorTint(Color.primary.opacity(0.06)).listRowBackground(nativePaper)
         default:
