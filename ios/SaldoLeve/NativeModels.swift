@@ -99,6 +99,17 @@ struct NativeTask: Codable, Identifiable, Equatable {
     var status: String { fields.text("status") }
     var revision: Int { fields.integer("revision") }
     var checks: [NativeCheck] { fields.objects("checklist").map(NativeCheck.init) }
+    var checklistReport: String {
+        let numbered = checks.enumerated().map { index, check in
+            (done: check.done, line: "\(index + 1)) \(check.title)")
+        }
+        let done = numbered.filter(\.done).map(\.line)
+        let pending = numbered.filter { !$0.done }.map(\.line)
+        return [
+            "Concluídos:\n" + (done.isEmpty ? "Nenhum" : done.joined(separator: "\n")),
+            "Pendentes:\n" + (pending.isEmpty ? "Nenhum" : pending.joined(separator: "\n"))
+        ].joined(separator: "\n\n")
+    }
     var isDone: Bool { status == "done" }
     var isActive: Bool { ["todo", "doing"].contains(status) }
     var paused: Bool { NativeDate.parse(fields.text("pausedUntil")).map { $0 > Date() } ?? false }

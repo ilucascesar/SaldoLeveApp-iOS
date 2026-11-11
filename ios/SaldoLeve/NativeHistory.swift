@@ -111,7 +111,7 @@ struct NativeGlobalHistoryView: View {
                     Toggle("Filtrar por mês", isOn: $monthOnly)
                     if monthOnly { DatePicker("Mês", selection: $month, displayedComponents: .date).datePickerStyle(.compact) }
                 }
-                ForEach(entries) { entry in
+                ForEach(entries.filter { !store.categoryLocked($0.fields.text("listId")) }) { entry in
                     Button { opened = entry } label: {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(entry.fields.text("title")).font(.system(size: 16, weight: .medium)).foregroundStyle(.primary)
@@ -135,7 +135,7 @@ struct NativeGlobalHistoryView: View {
         guard !store.offline, !store.isPreview else { return }
         loading = true; failure = nil
         do {
-            let data = try await store.api.get(JSONObject.self, action: "org_global_history", query: ["q": String(search.prefix(150)), "month": monthOnly ? NativeMonth.key(month) : "", "listId": categoryID, "offset": String(reset ? 0 : offset)])
+            let data = try await store.api.get(JSONObject.self, action: "org_global_history", query: ["q": String(search.prefix(150)), "month": monthOnly ? NativeMonth.key(month) : "", "listId": categoryID, "hideProtected": categoryID.isEmpty ? "1" : "0", "offset": String(reset ? 0 : offset)])
             guard !Task.isCancelled, key == requestKey else { return }
             entries = (reset ? [] : entries) + data.objects("entries").map(NativeRecord.init)
             more = data.flag("hasMore"); offset = data.integer("nextOffset"); loading = false
@@ -177,7 +177,7 @@ struct NativeTrashCollection: View {
     var body: some View {
         List {
             if entries.isEmpty && !loading { Text("A lixeira está vazia. Tarefas e subtarefas removidas aparecem aqui.").foregroundStyle(.secondary).padding(.vertical, 26) }
-            ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+            ForEach(Array(entries.filter { store.categoryProtection($0.text("listId")).isEmpty }.enumerated()), id: \.offset) { _, entry in
                 VStack(alignment: .leading, spacing: 7) {
                     Label(entry.text("title"), systemImage: entry.text("type") == "check" ? "checklist" : "doc.text").font(.system(size: 16, weight: .medium))
                     Text(entry.text("category") + (entry.text("type") == "check" ? " · " + entry.text("taskTitle") : "")).font(.caption).foregroundStyle(.secondary)
@@ -203,6 +203,6 @@ struct NativeTrashCollection: View {
     }
     private func load(reset: Bool) async {
         guard !loading, !store.offline, !store.isPreview else { return }; loading = true; defer { loading = false }
-        do { let data = try await store.api.get(JSONObject.self, action: "org_trash", query: ["offset": String(reset ? 0 : offset)]); entries = (reset ? [] : entries) + data.objects("entries"); offset = data.integer("nextOffset"); more = data.flag("hasMore") } catch { store.report(error) }
+        do { let data = try await store.api.get(JSONObject.self, action: "org_trash", query: ["offset": String(reset ? 0 : offset), "hideProtected": "1"]); entries = (reset ? [] : entries) + data.objects("entries"); offset = data.integer("nextOffset"); more = data.flag("hasMore") } catch { store.report(error) }
     }
 }

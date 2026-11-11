@@ -278,7 +278,7 @@ private struct ReceiptDestination {
 
     private func openTask(id: String, category: String) async throws {
         guard let api else { return }
-        let details = try await api.get(JSONObject.self, action: "org_item", query: ["id": id])
+        let details = try await api.get(JSONObject.self, action: "org_item", query: ["id": id, "receiptPicker": "1"])
         let current = NativeTask(details.record("item"))
         guard (current.isActive || current.isDone) && !current.checks.isEmpty else {
             throw NativeFailure("Esta tarefa não tem subtarefas disponíveis. Volte à busca e escolha outra.")

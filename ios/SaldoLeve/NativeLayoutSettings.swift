@@ -126,6 +126,15 @@ struct NativeLayoutDetail: View {
                 Picker("Filtro inicial", selection: $layout.expenseDefaultFilter) { Text("Todas").tag("all"); Text("Ativas").tag("active"); Text("Pendentes").tag("pending"); Text("Pagas").tag("paid"); Text("Desativadas").tag("inactive") }
                 Text("No menu ⋯ de cada card, fixe as despesas que quer manter no início.").font(.footnote).foregroundStyle(.secondary)
             }
+            Section("Formato por tipo de despesa") {
+                ForEach(["home", "card", "other"], id: \.self) { type in
+                    Picker(NativeFinanceFormat.expenseType(type), selection: styleBinding(type, expense: true)) {
+                        Text("Usar padrão").tag("")
+                        Text("Completo").tag("cards")
+                        Text("Compacto").tag("compact")
+                    }
+                }
+            }
         }
     }
     private var tasks: some View {
@@ -168,7 +177,23 @@ struct NativeLayoutDetail: View {
                 Toggle("Numerar subtarefas", isOn: $layout.taskDetailNumbers)
                 Toggle("Progresso no título do grupo", isOn: $layout.taskDetailProgress)
             } header: { Text("Detalhes de cada linha") } footer: { Text("O progresso aparece discreto ao lado do título, sem empurrar as subtarefas para baixo. Sem a data na linha, use o menu ⋯ para alterá-la.") }
+            Section("Estilo por categoria") {
+                ForEach(store.snapshot.lists.filter { !$0.archived }) { category in
+                    Picker(category.name, selection: styleBinding(category.id, expense: false)) {
+                        Text("Usar padrão").tag("")
+                        ForEach(NativeLayoutPreferences.taskDetailStyles, id: \.self) { style in
+                            Text(NativeTaskDetailLayout.names[style] ?? style).tag(style)
+                        }
+                    }
+                }
+            }
         }
+    }
+    private func styleBinding(_ key: String, expense: Bool) -> Binding<String> {
+        Binding(get: { (expense ? layout.expenseCategoryStyles : layout.taskCategoryLayouts)[key] ?? "" }, set: { style in
+            if expense { layout.expenseCategoryStyles[key] = style.isEmpty ? nil : style }
+            else { layout.taskCategoryLayouts[key] = style.isEmpty ? nil : style }
+        })
     }
     private var appearanceSettings: some View {
         Section {

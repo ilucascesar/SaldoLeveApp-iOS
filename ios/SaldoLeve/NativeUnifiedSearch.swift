@@ -38,7 +38,7 @@ import SwiftUI
                 if loading { ProgressView("Buscando no servidor…") }
                 if let issue { Text(issue).font(.footnote).foregroundStyle(.secondary) }
                 Section("\(total) resultado(s)") {
-                    ForEach(items.map(NativeRecord.init)) { record in
+                    ForEach(items.filter { store.categoryProtection($0.record("target").text("listId")).isEmpty }.map(NativeRecord.init)) { record in
                         Button { Task { await open(record.fields) } } label: {
                             VStack(alignment: .leading, spacing: 5) {
                                 HStack(alignment: .top) { Text(record.fields.text("title")).font(.headline).foregroundStyle(.primary); Spacer(); if let cents = record.fields["amountCents"]?.number { Text(NativeDate.money(cents)).font(.subheadline.bold()).foregroundStyle(.primary) } }
@@ -81,7 +81,7 @@ import SwiftUI
         #endif
         guard store.networkAvailable && !store.offline else { issue = "Sem conexão. Conecte-se para buscar os dados atuais do servidor."; return }
         guard minimum.isEmpty || NativeDate.cents(minimum) != nil, maximum.isEmpty || NativeDate.cents(maximum) != nil else { issue = "Confira os valores do filtro."; return }
-        var parameters = ["q":query, "type":type, "status":status, "personId":person, "from":from, "to":to, "offset":String(reset ? 0 : nextOffset ?? 0), "limit":"50"]
+        var parameters = ["q":query, "type":type, "status":status, "personId":person, "from":from, "to":to, "offset":String(reset ? 0 : nextOffset ?? 0), "limit":"50", "hideProtected":"1"]
         if let cents = NativeDate.cents(minimum) { parameters["minCents"] = String(cents) }; if let cents = NativeDate.cents(maximum) { parameters["maxCents"] = String(cents) }
         loading = true; defer { loading = false }
         do {

@@ -72,9 +72,10 @@ struct NativeRootView: View {
         .onChange(of: store.refreshing) { _ in openWidgetDestination() }
         .onChange(of: store.locked) { _ in openWidgetDestination(); runQuickAction() }
         .onChange(of: store.user?.id) { _ in openWidgetDestination() }
+        .onChange(of: store.section) { section in if section != .tasks { store.relockCategories() } }
         .onChange(of: quickActions.pending) { _ in runQuickAction() }
         .onChange(of: scenePhase) { phase in
-            if phase == .background { wasInBackground = true } else if phase == .active { wasInBackground = false }
+            if phase == .background { wasInBackground = true; store.relockCategories() } else if phase == .active { wasInBackground = false }
             if phase != .active { store.persist() }
             if phase == .background && UserDefaults.standard.bool(forKey: "nativeBiometrics") { store.locked = store.user != nil }
             if phase == .active {
@@ -126,7 +127,7 @@ struct NativeRootView: View {
         }
         let id = items.first { $0.name == "id" }?.value
         guard let id else { pendingURL = nil; return }
-        if let task = store.snapshot.items.first(where: { $0.id == id }) {
+        if let task = store.taskByID(id) {
             pendingURL = nil; store.openedTask = task
         } else if !store.needsSync && !store.refreshing {
             pendingURL = nil; store.message = "Esta tarefa não está disponível na sua conta."

@@ -69,12 +69,12 @@ struct NativeNotificationSettings: View {
             }
             Section {
                 LabeledContent("Avisos programados", value: "\(pending) de até 60")
-                Button("Recalcular avisos agora") { store.reminders.update(store.snapshot); Task { try? await Task.sleep(nanoseconds: 400_000_000); await reload() } }.disabled(!enabled)
+                Button("Recalcular avisos agora") { store.reminders.update(store.reminderSnapshot); Task { try? await Task.sleep(nanoseconds: 400_000_000); await reload() } }.disabled(!enabled)
                 Button("Testar aviso em 5 segundos") { Task { do { try await store.reminders.test() } catch { store.report(error) } } }.disabled(!enabled)
             } footer: { Text("Abra e sincronize para atualizar os lembretes após mudanças no site. O iOS entrega os avisos já programados com o app fechado. Não há atualização contínua nem notificações remotas de alterações na conta.") }
         }.navigationTitle("Notificações").navigationBarTitleDisplayMode(.inline)
             .task { await reload() }
-            .onChange(of: preferences) { value in value.save(); store.reminders.update(store.snapshot) }
+            .onChange(of: preferences) { value in value.save(); store.reminders.update(store.reminderSnapshot) }
             .onChange(of: scenePhase) { value in if value == .active { Task { await reload() } } }
     }
     private func setEnabled(_ value: Bool) {

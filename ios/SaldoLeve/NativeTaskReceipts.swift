@@ -17,6 +17,7 @@ func nativeCurrentReceipt(_ file: NativeRecord, task: NativeTask) -> Bool {
 struct NativeReceiptThumbnail: View {
     let api: NativeAPI
     let file: NativeRecord
+    var size = CGSize(width: 46, height: 46)
     @State private var image: UIImage?
     var body: some View {
         Group {
@@ -27,19 +28,19 @@ struct NativeReceiptThumbnail: View {
                     .font(.system(size: 18)).foregroundStyle(.secondary)
             }
         }
-        .frame(width: 46, height: 46)
+        .frame(width: size.width, height: size.height)
         .background(.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
         .accessibilityHidden(true)
         .task(id: file.id) {
             image = nil
             guard let bytes = try? await api.attachmentData(id: file.id), !Task.isCancelled else { return }
             if bytes.starts(with: Data("%PDF-".utf8)) || file.fields.text("type") == "application/pdf" {
-                image = PDFDocument(data: bytes)?.page(at: 0)?.thumbnail(of: CGSize(width: 138, height: 138), for: .cropBox)
+                image = PDFDocument(data: bytes)?.page(at: 0)?.thumbnail(of: CGSize(width: size.width * 3, height: size.height * 3), for: .cropBox)
             } else if let source = CGImageSourceCreateWithData(bytes as CFData, nil),
                       let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                         kCGImageSourceCreateThumbnailFromImageAlways: true,
                         kCGImageSourceCreateThumbnailWithTransform: true,
-                        kCGImageSourceThumbnailMaxPixelSize: 138
+                        kCGImageSourceThumbnailMaxPixelSize: Int(max(size.width, size.height) * 3)
                       ] as CFDictionary) {
                 image = UIImage(cgImage: thumbnail)
             }

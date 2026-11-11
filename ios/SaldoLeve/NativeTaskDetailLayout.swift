@@ -1,4 +1,101 @@
 import SwiftUI
+import UIKit
+
+struct NativeChecklistPosition: Hashable {
+    let id: String
+    let done: Bool
+    let date: Date?
+
+    init(_ check: NativeCheck) {
+        id = check.id
+        done = check.done
+        date = check.date
+    }
+}
+
+@MainActor
+final class NativeChecklistScroll {
+    private final class Marker {
+        weak var view: UIView?
+        init(_ view: UIView) { self.view = view }
+    }
+
+    struct Anchor {
+        let offsets: [(id: String, top: CGFloat)]
+        let fallback: CGPoint
+    }
+
+    private var markers: [String: Marker] = [:]
+    private weak var list: UIScrollView?
+    private var ticket = 0
+
+    func register(_ id: String, view: UIView) { markers[id] = Marker(view) }
+
+    func capture(staying: Set<String>) -> Anchor? {
+        ticket += 1
+        let attached = markers.compactMapValues { $0.view?.window == nil ? nil : $0.view }
+        guard let marker = attached.values.first, let scrollView = enclosingScrollView(marker),
+              !scrollView.isTracking, !scrollView.isDecelerating else { return nil }
+        list = scrollView
+        let visible = CGRect(origin: scrollView.contentOffset, size: scrollView.bounds.size).inset(by: scrollView.adjustedContentInset)
+        let offsets = attached.compactMap { id, view -> (id: String, top: CGFloat)? in
+            guard staying.contains(id) else { return nil }
+            let frame = view.convert(view.bounds, to: scrollView)
+            guard frame.intersects(visible) else { return nil }
+            return (id, frame.minY - scrollView.contentOffset.y)
+        }.sorted { $0.top < $1.top }
+        return Anchor(offsets: offsets, fallback: scrollView.contentOffset)
+    }
+
+    func restore(_ anchor: Anchor?) {
+        guard let anchor else { return }
+        let current = ticket
+        // SwiftUI can reapply its own offset when the list commits the row move.
+        // Restore again on the following layout pass, unless the user scrolled.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.apply(anchor, ticket: current) else { return }
+            DispatchQueue.main.async { [weak self] in _ = self?.apply(anchor, ticket: current) }
+        }
+    }
+
+    private func apply(_ anchor: Anchor, ticket current: Int) -> Bool {
+        guard current == ticket, let list, list.window != nil, !list.isTracking, !list.isDecelerating else { return false }
+        list.layoutIfNeeded()
+        var target = anchor.fallback
+        for (id, top) in anchor.offsets {
+            guard let view = markers[id]?.view, view.window != nil, view.isDescendant(of: list) else { continue }
+            target.y = view.convert(view.bounds, to: list).minY - top
+            break
+        }
+        let minimum = -list.adjustedContentInset.top
+        let maximum = max(minimum, list.contentSize.height - list.bounds.height + list.adjustedContentInset.bottom)
+        target.y = min(maximum, max(minimum, target.y))
+        if abs(target.y - list.contentOffset.y) > 0.5 { list.setContentOffset(target, animated: false) }
+        return true
+    }
+
+    private func enclosingScrollView(_ marker: UIView) -> UIScrollView? {
+        var view = marker.superview
+        while let parent = view {
+            if let scrollView = parent as? UIScrollView { return scrollView }
+            view = parent.superview
+        }
+        return nil
+    }
+}
+
+struct NativeChecklistMarker: UIViewRepresentable {
+    let id: String
+    let scroll: NativeChecklistScroll
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ view: UIView, context: Context) { scroll.register(id, view: view) }
+}
 
 // Shared by the open task and the layout simulator, so the preview always
 // matches what an opened task really shows.

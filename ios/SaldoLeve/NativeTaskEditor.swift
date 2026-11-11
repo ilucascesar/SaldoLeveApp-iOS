@@ -2,6 +2,7 @@ import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
 import QuickLook
+import UIKit
 
 struct NativeRecord: Identifiable {
     let fields: JSONObject
@@ -30,6 +31,8 @@ struct NativeTaskEditor: View {
     @State private var suggestions = false
     @State private var valuesRecord: NativeRecord?
     @State private var shared: NativeSharedFile?
+    @State private var checklistShare: String?
+    @State private var checklistScroll = NativeChecklistScroll()
     @State private var failure: String?
     @State private var removingCheck: String?
     @State private var pauseMenu = false
@@ -64,15 +67,27 @@ struct NativeTaskEditor: View {
         _task = State(initialValue: current)
         _baseline = State(initialValue: current)
         _serverReady = State(initialValue: !store.editorSyncEnabled)
-        _collapsedGroups = State(initialValue: store.layout.taskDetailExpandDone ? [] : ["done"])
+        _collapsedGroups = State(initialValue: store.layout.forTaskCategory(current.categoryID).taskDetailExpandDone ? [] : ["done"])
     }
-    private var editable: Bool { serverReady && store.networkAvailable && !store.offline && !store.needsSync && !reloading && store.snapshot.lists.first(where: { $0.id == task.categoryID })?.canEdit == true && task.status != "trashed" }
+    private var detailLayout: NativeLayoutPreferences { store.layout.forTaskCategory(task.categoryID) }
+    private var categoryLocked: Bool { store.categoryLocked(store.taskByID(task.id)?.categoryID ?? task.categoryID) }
+    private var editable: Bool { !categoryLocked && serverReady && store.networkAvailable && !store.offline && !store.needsSync && !reloading && store.snapshot.lists.first(where: { $0.id == task.categoryID })?.canEdit == true && task.status != "trashed" }
     private var repeating: Binding<Bool> {
         Binding(get: { task.fields["repeat"]?.object.text("frequency") == "monthly" }, set: { value in
             task.fields["repeat"] = .object(["frequency": .string(value ? "monthly" : "none"), "interval": .number(1)])
         })
     }
-    var body: some View {
+    @ViewBuilder var body: some View {
+        if categoryLocked {
+            NavigationStack {
+                NativeCategoryGate(store: store, categoryID: store.taskByID(task.id)?.categoryID ?? task.categoryID)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() } } }
+            }
+        } else {
+            editor
+        }
+    }
+    private var editor: some View {
         NavigationStack {
             synchronizedList
             .navigationTitle(task.id.isEmpty ? "Adicionar tarefa" : store.category(task)).navigationBarTitleDisplayMode(.inline)
@@ -82,12 +97,17 @@ struct NativeTaskEditor: View {
                 ToolbarItemGroup(placement: .bottomBar) {
                     Button { openReceipts() } label: { Image(systemName: "paperclip").frame(width: 38, height: 40) }.disabled(task.id.isEmpty || saving || loading).accessibilityLabel("Anexos e comprovantes")
                     Button { history = true } label: { Image(systemName: "clock.arrow.circlepath").frame(width: 38, height: 40) }.disabled(task.id.isEmpty || saving || loading).accessibilityLabel("Histórico")
+                    Menu {
+                        Button { exportChecklist(share: false) } label: { Label("Copiar lista de subtarefas", systemImage: "doc.on.doc") }
+                        Button { exportChecklist(share: true) } label: { Label("Compartilhar lista de subtarefas", systemImage: "square.and.arrow.up") }
+                    } label: { Image(systemName: "ellipsis.circle").frame(width: 38, height: 40) }
+                        .accessibilityLabel("Exportar lista de subtarefas").disabled(task.checks.isEmpty && newCheck.isEmpty || loading || saving)
                     Spacer()
                     Text(!serverReady || store.offline ? "Somente consulta" : saving ? "Salvando no servidor…" : task == baseline ? "" : "Ainda não salvo").font(.system(size: 11)).foregroundStyle(.secondary)
                 }
             }
             .sheet(isPresented: $installmentGenerator) { NativeInstallmentGenerator(task: $task) }
-            .sheet(item: $installmentSelection) { selection in NativeInstallmentPayment(task: $task, initialCheckID: selection.checkID, commit: { autosave?.cancel(); return await commit(closing: false) }) }
+            .sheet(item: $installmentSelection) { selection in NativeInstallmentPayment(task: Binding(get: { task }, set: replaceTask), initialCheckID: selection.checkID, commit: { autosave?.cancel(); return await commit(closing: false) }) }
             .sheet(item: $receiptTarget) { target in
                 NativeTaskReceipts(store: store, target: target, onFilesChanged: { attachments = $0 }, onAttached: { flash("Comprovante anexado") })
             }
@@ -108,6 +128,9 @@ struct NativeTaskEditor: View {
             .sheet(item: $valuesRecord) { record in NativeCheckValues(store: store, taskID: task.id, checkID: record.id) { Task { await reload() } } }
             .sheet(isPresented: $history) { NativeHistoryView(store: store, taskID: task.id) }
             .sheet(item: $shared) { NativeShareSheet(items: [$0.url]) }
+            .sheet(isPresented: Binding(get: { checklistShare != nil }, set: { if !$0 { checklistShare = nil } })) {
+                if let checklistShare { NativeShareSheet(items: [checklistShare]) }
+            }
             .alert("Não foi possível concluir", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
                 Button("Continuar editando") { failure = nil }
                 Button("Fechar sem salvar", role: .destructive) { saved = true; dismiss() }
@@ -153,7 +176,6 @@ struct NativeTaskEditor: View {
                 }
                 TextField("Descrição ou anotações…", text: text("body"), axis: .vertical).font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(2...14).disabled(!editable || loading || closing)
                 if let pending = task.pendingAmount { NativeTaskPendingAmount(amount: pending) }
-                if !saveStatus.isEmpty { Label(saveStatus, systemImage: saving ? "arrow.triangle.2.circlepath" : task == baseline ? "checkmark" : "pencil").font(.system(size: 11)).foregroundStyle(.secondary).accessibilityElement(children: .ignore).accessibilityLabel(saveStatus).accessibilityIdentifier("task-save-status") }
                 if let syncNotice {
                     VStack(alignment: .leading, spacing: 8) {
                         Label(syncNotice, systemImage: "arrow.triangle.2.circlepath").font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("task-sync-notice")
@@ -193,6 +215,14 @@ struct NativeTaskEditor: View {
     }
     private var synchronizedList: some View {
         editorList
+        .overlay(alignment: .bottomTrailing) {
+            if !saveStatus.isEmpty {
+                Label(saveStatus, systemImage: saving ? "arrow.triangle.2.circlepath" : "checkmark")
+                    .font(.caption2).foregroundStyle(.secondary).padding(7)
+                    .background(.regularMaterial, in: Capsule()).padding(8).allowsHitTesting(false)
+                    .accessibilityIdentifier("task-save-status")
+            }
+        }
         .interactiveDismissDisabled(editable && (task != baseline || task.id.isEmpty && !task.title.isEmpty) || saving || !newCheck.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         .task {
             if task.id.isEmpty {
@@ -290,7 +320,7 @@ struct NativeTaskEditor: View {
         let checks = task.checks
         let legacyValues = checks.contains(where: task.usesManualPayment)
         let receipts = Dictionary(grouping: attachments.filter { nativeCurrentReceipt($0, task: task) }) { $0.fields.text("checkId") }
-        NativeTaskChecklist(checks: checks, money: legacyValues, receive: task.moneyMode == "receive", layout: store.layout, collapsed: collapsedGroups, toggle: { id in
+        NativeTaskChecklist(checks: checks, money: legacyValues, receive: task.moneyMode == "receive", layout: detailLayout, collapsed: collapsedGroups, toggle: { id in
             withAnimation(.easeInOut(duration: 0.2)) { if collapsedGroups.contains(id) { collapsedGroups.remove(id) } else { collapsedGroups.insert(id) } }
         }) { check, presentation in checkRow(check, presentation: presentation, receipts: receipts[check.id] ?? [], legacyValues: legacyValues) }
         if editable {
@@ -328,7 +358,7 @@ struct NativeTaskEditor: View {
                     if let file = receipts.last {
                         Button { previewReceipt(file) } label: {
                             HStack(spacing: 6) {
-                                NativeReceiptThumbnail(api: store.api, file: file)
+                                NativeReceiptThumbnail(api: store.api, file: file, size: presentation.style == "cards" ? CGSize(width: 150, height: 106) : CGSize(width: 46, height: 46))
                                 if receipts.count > 1 { Text("+\(receipts.count - 1)").font(.caption2).foregroundStyle(.secondary) }
                             }
                         }.accessibilityLabel("Visualizar comprovante " + file.fields.text("name"))
@@ -341,7 +371,7 @@ struct NativeTaskEditor: View {
                     }
                 }.buttonStyle(.borderless).padding(.leading, 34).padding(.bottom, 4)
             }
-        }
+        }.background(NativeChecklistMarker(id: id, scroll: checklistScroll))
     }
     private var reorderSheet: some View {
         NavigationStack {
@@ -374,8 +404,36 @@ struct NativeTaskEditor: View {
     }
     private func checkBinding(_ id: String) -> Binding<JSONObject> {
         Binding(get: { task.checks.first { $0.id == id }?.fields ?? [:] }, set: { next in
-            task.fields["checklist"] = .array(task.checks.map { .object($0.id == id ? next : $0.fields) })
+            var updated = task
+            updated.fields["checklist"] = .array(task.checks.map { .object($0.id == id ? next : $0.fields) })
+            replaceTask(updated)
         })
+    }
+    private func replaceTask(_ updated: NativeTask) {
+        let old = task.checks
+        let next = updated.checks
+        let before = old.map { NativeChecklistPosition($0) }
+        let after = next.map { NativeChecklistPosition($0) }
+        guard before != after else { task = updated; return }
+        let matching = Set(before).intersection(after).map(\.id)
+        let anchor = checklistScroll.capture(staying: Set(matching))
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { task = updated }
+        checklistScroll.restore(anchor)
+    }
+    private func exportChecklist(share: Bool) {
+        Task {
+            guard !categoryLocked else { return }
+            if editable && (!newCheck.isEmpty || task != baseline) {
+                addCheck()
+                autosave?.cancel()
+                guard newCheck.isEmpty, await commit(closing: false) else { return }
+            }
+            let report = (editable ? task : baseline).checklistReport
+            if share { checklistShare = report }
+            else { UIPasteboard.general.string = report; flash("Lista copiada") }
+        }
     }
     private var valid: Bool {
         !task.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
@@ -416,7 +474,7 @@ struct NativeTaskEditor: View {
             if store.offline { await store.refresh() }
             let merge = NativeTaskMerge(local: task, base: submitted, remote: receipt.canonical)
             baseline = receipt.canonical
-            task = merge.conflicts.isEmpty ? merge.task : receipt.canonical
+            replaceTask(merge.conflicts.isEmpty ? merge.task : receipt.canonical)
             serverReady = !store.offline && !store.needsSync
             if task == baseline { flash("Salvo na sua conta") } else { saveStatus = "Alterações ainda não salvas no servidor" }
             succeeded = true
@@ -435,7 +493,7 @@ struct NativeTaskEditor: View {
                     : "O salvamento não foi confirmado. A tela mostra os dados que estão no servidor."
             } else {
                 store.noteConnectionFailure(reason)
-                task = baseline; newCheck = ""; serverReady = false
+                replaceTask(baseline); newCheck = ""; serverReady = false
                 saveStatus = "Não salvo no servidor"
                 syncNotice = "Não foi possível confirmar o salvamento. Conecte-se e atualize para conferir os dados do servidor. Não foi criado rascunho neste iPhone."
             }
@@ -451,7 +509,7 @@ struct NativeTaskEditor: View {
     // problems stay on screen. Confirmations disappear after a moment.
     private func adoptServer(_ remote: NativeTask, status: String = "") {
         if remote != baseline { dismissEditingSheets() }
-        autosave?.cancel(); baseline = remote; task = remote; newCheck = ""
+        autosave?.cancel(); baseline = remote; replaceTask(remote); newCheck = ""
         serverReady = !store.offline && !store.needsSync && store.networkAvailable
         syncNotice = nil
         if status.isEmpty { saveStatus = "" } else { flash(status) }
@@ -467,7 +525,7 @@ struct NativeTaskEditor: View {
         dismissEditingSheets()
         autosave?.cancel(); serverReady = false
         guard !saving else { return }
-        task = store.snapshot.items.first(where: { $0.id == task.id }) ?? baseline
+        replaceTask(store.snapshot.items.first(where: { $0.id == task.id }) ?? baseline)
         baseline = task; newCheck = ""
         saveStatus = "Somente consulta"
         syncNotice = "Sem conexão com o servidor. A edição está bloqueada; alterações não confirmadas não ficam guardadas como rascunho."

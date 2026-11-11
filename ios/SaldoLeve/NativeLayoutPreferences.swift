@@ -44,6 +44,8 @@ struct NativeLayoutPreferences: Codable, Equatable {
     var taskDefaultFrom = ""
     var taskDefaultTo = ""
     var taskDetailLayout = "elegant"
+    var taskCategoryLayouts: [String: String] = [:]
+    var expenseCategoryStyles: [String: String] = [:]
     var taskDetailGrouping = "status"
     var taskDetailProgress = true
     var taskDetailMetadata = true
@@ -54,6 +56,20 @@ struct NativeLayoutPreferences: Codable, Equatable {
     var taskDetailDensity = "regular"
     static let taskDetailStyles = ["elegant", "cards", "timeline", "ledger", "minimal"]
     static let taskDetailGroupings = ["status", "date", "none"]
+    func forTaskCategory(_ id: String) -> Self {
+        guard let style = taskCategoryLayouts[id] else { return self }
+        var result = self
+        result.applyTaskDetailPreset(style)
+        return result
+    }
+    func forExpenseCategory(_ type: String) -> Self {
+        var result = self
+        result.cardStyle = expenseCategoryStyles[Self.expenseCategory(type)] ?? cardStyle
+        return result
+    }
+    static func expenseCategory(_ type: String) -> String {
+        ["home", "card"].contains(type) ? type : "other"
+    }
     // Choosing a style starts from its recommended options; each one can still
     // be changed afterwards without losing the chosen style.
     mutating func applyTaskDetailPreset(_ style: String) {
@@ -90,6 +106,8 @@ struct NativeLayoutPreferences: Codable, Equatable {
         if startPage == "expenses" { startPage = "dashboard" }
         if !tabs.contains(startPage) { startPage = "tasks" }
         if !Self.taskDetailStyles.contains(taskDetailLayout) { taskDetailLayout = "elegant" }
+        taskCategoryLayouts = taskCategoryLayouts.filter { Int($0.key).map { $0 > 0 } == true && Self.taskDetailStyles.contains($0.value) }
+        expenseCategoryStyles = expenseCategoryStyles.filter { ["home", "card", "other"].contains($0.key) && ["cards", "compact"].contains($0.value) }
         if !Self.taskDetailGroupings.contains(taskDetailGrouping) { taskDetailGrouping = "status" }
         if !["regular", "compact"].contains(taskDetailDensity) { taskDetailDensity = "regular" }
         if !["compact", "comfortable", "spacious"].contains(density) { density = "comfortable" }

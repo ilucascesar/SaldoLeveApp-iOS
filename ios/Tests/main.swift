@@ -418,3 +418,21 @@ func verifyReceiptImport() throws {
 }
 try! verifyReceiptImport()
 print("Receipt import: exact PDF/image bytes, filename and file limits passed.")
+
+let numberedChecklist = NativeTask(["title": .string("Presença"), "checklist": .array([
+    .object(["id": .string("first"), "text": .string("Lucas"), "done": .bool(true)]),
+    .object(["id": .string("second"), "text": .string("Maria"), "done": .bool(false)]),
+    .object(["id": .string("third"), "text": .string("Adriano"), "done": .bool(true)]),
+    .object(["id": .string("fourth"), "text": .string("João"), "done": .bool(false)])
+])])
+check(numberedChecklist.checklistReport == "Concluídos:\n1) Lucas\n3) Adriano\n\nPendentes:\n2) Maria\n4) João",
+    "Copied checklists preserve the original number in each status group")
+var categoryLayouts = NativeLayoutPreferences()
+categoryLayouts.taskCategoryLayouts = ["12": "ledger", "13": "cards"]
+categoryLayouts.expenseCategoryStyles = ["home": "compact"]
+check(categoryLayouts.forTaskCategory("12").taskDetailDensity == "compact"
+    && categoryLayouts.forTaskCategory("13").taskDetailLayout == "cards"
+    && categoryLayouts.forTaskCategory("14").taskDetailLayout == "elegant", "Task detail layouts are isolated by category")
+check(categoryLayouts.forExpenseCategory("home").cardStyle == "compact"
+    && categoryLayouts.forExpenseCategory("card").cardStyle == "cards", "Expense card styles are isolated by type")
+print("2.9.4: original checklist numbering and per-category layout passed.")

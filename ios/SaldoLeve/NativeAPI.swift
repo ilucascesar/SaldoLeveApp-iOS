@@ -178,7 +178,7 @@ final class NativeAPI {
         let encoded = try encoder.encode(fingerprintBody)
         let fingerprint = action + "|" + SHA256.hash(data: encoded).map { String(format: "%02x", $0) }.joined()
         if action == "org_save_item", ["pay", "receive"].contains(body.text("moneyMode")), !acceptedDuplicates.contains(fingerprint) {
-            let duplicates = try await post(action: "org_duplicates", body: body)
+            let duplicates = try await post(action: "org_duplicates", body: body.merging(["hideProtected": .bool(true)]) { _, new in new })
             let matches = duplicates.objects("matches")
             if !matches.isEmpty {
                 let names = matches.map { $0.text("text") + ($0["amount"]?.number.map { " · " + NativeDate.money($0) } ?? "") }.joined(separator: "\n")

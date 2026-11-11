@@ -40,7 +40,7 @@ import CryptoKit
             let next = try await parent.api.get(NativePlatformSnapshot.self, action: "platform_bootstrap")
             guard parent.user?.id == userID else { return }
             snapshot = next; loaded = true; issue = nil; applyRemoteLayout()
-            parent.reminders.update(parent.snapshot, birthdays: enabled("birthdays") ? next.birthdays : [], places: NativePlace.list(next.config))
+            parent.reminders.update(parent.reminderSnapshot, birthdays: enabled("birthdays") ? next.birthdays : [], places: NativePlace.list(next.config))
             parent.objectWillChange.send()
             if !contactsSyncing { Task { await syncContactsIfNeeded() } }
         } catch { guard !NativeRequestError.isCancellation(error) else { return }; parent.noteConnectionFailure(error); issue = "Não foi possível atualizar os novos recursos. Confira a atualização da HostGator. " + error.localizedDescription }

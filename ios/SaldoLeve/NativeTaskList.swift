@@ -45,7 +45,8 @@ struct NativeTaskList: View {
     private var hasFilters: Bool { dateFilter.period != "all" || sort != .due }
     private var currentCategory: NativeCategory? { store.snapshot.lists.first { $0.id == category } }
     private var heading: String { page == .habits ? "Meus hábitos" : page == .calendar ? (currentCategory?.name ?? "Calendário") : currentCategory?.name ?? (tag.isEmpty ? (scope == .all ? store.platform.text("tasksHeading", fallback: scope.rawValue) : scope.rawValue) : "#" + tag) }
-    private var canAdd: Bool { store.user != nil && store.networkAvailable && !store.offline && !store.needsSync && (scope != .trash && !store.editableCategories.isEmpty && (currentCategory == nil || currentCategory?.canEdit == true)) }
+    private var categoryLocked: Bool { store.categoryLocked(category) }
+    private var canAdd: Bool { !categoryLocked && store.user != nil && store.networkAvailable && !store.offline && !store.needsSync && (scope != .trash && !store.editableCategories.isEmpty && (currentCategory == nil || currentCategory?.canEdit == true)) }
     private func query(includeDone: Bool = false) -> [NativeTask] { NativeTaskQuery.select(store.snapshot, scope: page == .calendar ? .all : scope, categoryID: category, tag: tag, search: search, sort: sort, userID: store.user?.id ?? "", includeDone: includeDone, dateFilter: dateFilter) }
     @State private var projection = NativeTaskProjection()
     @State private var loadedRequest: NativeTaskRequest?
@@ -59,7 +60,18 @@ struct NativeTaskList: View {
         NavigationStack {
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
-                    VStack(spacing: 0) { header; viewTabs; if searching { searchBar }; if page == .habits { NativeHabitsView(store: store) } else if scope == .trash && page == .list { NativeTrashCollection(store: store) } else { taskCollection } }.background(nativeCanvas)
+                    VStack(spacing: 0) {
+                        header
+                        if categoryLocked {
+                            NativeCategoryGate(store: store, categoryID: category).id(category)
+                        } else {
+                            viewTabs
+                            if searching { searchBar }
+                            if page == .habits { NativeHabitsView(store: store) }
+                            else if scope == .trash && page == .list { NativeTrashCollection(store: store) }
+                            else { taskCollection }
+                        }
+                    }.background(nativeCanvas)
                     if drawer {
                         Color.black.opacity(0.28).ignoresSafeArea().onTapGesture { closeDrawer() }.transition(.opacity)
                         drawerContent.frame(width: min(330, geometry.size.width * 0.86)).frame(maxHeight: .infinity).background(nativePaper).transition(.move(edge: .leading)).shadow(color: .black.opacity(0.12), radius: 20, x: 8)
@@ -73,12 +85,12 @@ struct NativeTaskList: View {
                     Button { newTask() } label: { Image(systemName: "plus").font(.system(size: 24, weight: .medium)).foregroundStyle(.white).frame(width: 54, height: 54).background(nativeBlue, in: Circle()).shadow(color: nativeBlue.opacity(0.28), radius: 10, y: 5) }.accessibilityLabel("Nova tarefa").padding(.trailing, 20).padding(.bottom, 16).disabled(store.working)
                 }
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) { if selecting { bulkBar } }
+            .safeAreaInset(edge: .bottom, spacing: 0) { if selecting && !categoryLocked { bulkBar } }
             .sheet(isPresented: $profile) { NativeProfileView(store: store) }
             .sheet(isPresented: $filtersOpen) { NativeTaskFilterEditor(sort: Binding(get: { sort.rawValue }, set: { sort = NativeTaskSort(rawValue: $0) ?? .due }), filter: $dateFilter, canSave: store.platform.canWrite, saving: savingDefaults, saved: defaultsSaved, issue: filterIssue, save: saveTaskDefaults) }
             .sheet(isPresented: $categoryEditor) { NativeCategoryEditor(store: store, original: editingCategory) }
-            .sheet(isPresented: $history) { NativeGlobalHistoryView(store: store, categoryID: category) }
-            .sheet(isPresented: $tools) { NativeCollectionTools(store: store, categoryID: category, items: query(includeDone: true)) }
+            .sheet(isPresented: $history) { if !categoryLocked { NativeGlobalHistoryView(store: store, categoryID: category) } }
+            .sheet(isPresented: $tools) { if !categoryLocked { NativeCollectionTools(store: store, categoryID: category, items: query(includeDone: true).filter { !store.categoryLocked($0.categoryID) }) } }
             .confirmationDialog("Mover as selecionadas para a lixeira?", isPresented: $bulkTrash, titleVisibility: .visible) { Button("Mover para a lixeira", role: .destructive) { bulk("trash") } }
             .alert("Salvar filtro", isPresented: $savingFilter) { TextField("Nome do filtro", text: $filterName); Button("Cancelar", role: .cancel) {}; Button("Salvar") { saveFilter() } } message: { Text("Guarda categoria, busca, etiqueta e filtro, também no site.") }
             .onAppear {
@@ -101,6 +113,12 @@ struct NativeTaskList: View {
             }
             .onChange(of: store.taskCategoryRequest) { _ in consumeNavigation() }
             .onChange(of: store.taskScopeRequest) { _ in consumeNavigation() }
+            .onChange(of: category) { [category] _ in
+                if !category.isEmpty { store.relockCategories(category) }
+            }
+            .onChange(of: categoryLocked) { locked in
+                if locked { searching = false; search = ""; history = false; tools = false; selecting = false; selected.removeAll() }
+            }
             .onChange(of: store.layout.taskDefaultSort) { sort = NativeTaskSort(rawValue: $0) ?? .due }
             .onChange(of: store.layout.taskDateFilter) { dateFilter = $0 }
             .onChange(of: sort) { _ in defaultsSaved = false; filterIssue = nil }
@@ -120,9 +138,9 @@ struct NativeTaskList: View {
                 Button { selecting.toggle(); selected.removeAll() } label: { Label(selecting ? "Cancelar seleção" : "Selecionar tarefas", systemImage: "checkmark.circle") }
                 Button { Task { await store.refresh() } } label: { Label("Atualizar", systemImage: "arrow.clockwise") }
                 Button { filterName = ""; savingFilter = true } label: { Label("Salvar filtro atual", systemImage: "bookmark") }
-                Button { history = true } label: { Label("Histórico de pagamentos", systemImage: "clock.arrow.circlepath") }
+                Button { history = true } label: { Label("Histórico de pagamentos", systemImage: "clock.arrow.circlepath") }.disabled(categoryLocked)
                 if let currentCategory, currentCategory.fields.text("ownerId") == store.user?.id { Button { editingCategory = currentCategory; categoryEditor = true } label: { Label("Editar categoria", systemImage: "folder.badge.gearshape") } }
-                Button { tools = true } label: { Label("Resumo, importar e exportar", systemImage: "square.and.arrow.up") }
+                Button { tools = true } label: { Label("Resumo, importar e exportar", systemImage: "square.and.arrow.up") }.disabled(categoryLocked)
                 Button { profile = true } label: { Label("Configurações", systemImage: "gearshape") }
                 if store.platform.enabled("search") { Button { store.openedFinance = .init(kind: "search") } label: { Label(store.platform.label("search"), systemImage: "magnifyingglass") } }
                 if store.platform.enabled("birthdays") { Button { store.openedFinance = .init(kind: "birthdays") } label: { Label(store.platform.label("birthdays"), systemImage: "gift") } }

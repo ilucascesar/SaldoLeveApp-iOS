@@ -229,13 +229,17 @@ struct NativeWebExpenseCard: View {
     private var data: NativeFinanceSnapshot { finance.snapshot }
     private var e: JSONObject { data.expense(expenseID) }
     private var c: JSONObject { data.expenseCalculation(expenseID) }
-    private var p: NativeLayoutPreferences { store.layout }
+    private var p: NativeLayoutPreferences { store.layout.forExpenseCategory(e.text("type")) }
     private var accent: Color { Color(nativeHex: e.text("accent")) }
     private var compact: Bool { p.cardStyle == "compact" || p.cardColumns == 2 }
     private var progress: JSONObject { data.active.record("paymentProgress").record(expenseID) }
     private var paymentStatus: NativeExpenseCardPayment { .init(data, id: expenseID) }
     var body: some View {
-        Group { if p.cardColumns >= 3 { miniCard } else { fullCard } }
+        Group {
+            if p.cardStyle == "compact" { compactCard }
+            else if p.cardColumns >= 3 { miniCard }
+            else { fullCard }
+        }
             .contextMenu { actions }
             .accessibilityIdentifier("expense-card-" + expenseID)
     }
@@ -266,6 +270,28 @@ struct NativeWebExpenseCard: View {
         }.padding(compact ? 13 : 18).background(paymentStatus.complete ? Color.green.opacity(0.12) : nativePaper, in: RoundedRectangle(cornerRadius: p.cardRadius))
             .overlay(alignment: .top) { RoundedRectangle(cornerRadius: 2).fill(accent).frame(height: 3).padding(.horizontal, p.cardRadius) }
             .overlay { RoundedRectangle(cornerRadius: p.cardRadius).strokeBorder(paymentStatus.complete ? Color.green.opacity(0.55) : Color.primary.opacity(0.055), lineWidth: paymentStatus.complete ? 1.5 : 1) }
+    }
+    private var compactCard: some View {
+        Button { open("detail") } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 4) {
+                    if p.cardShowIcon { Image(systemName: e.text("type") == "card" ? "creditcard.fill" : "house").foregroundStyle(accent) }
+                    Text(e.text("name")).lineLimit(2)
+                    Spacer(minLength: 0)
+                    if paymentStatus.complete { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+                }.font(.system(size: 11 * p.textScale, weight: .semibold))
+                Text(NativeFinanceFormat.money(c.decimal("integral"))).font(.system(size: 14 * p.textScale, weight: .bold)).lineLimit(1).minimumScaleFactor(0.65)
+                if p.cardShowType { Text(NativeFinanceFormat.expenseType(e.text("type"))).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
+                if p.cardShowShare && e.flag("shared") {
+                    Text("Sua parte · " + NativeFinanceFormat.money(c.decimal("considered"))).font(.caption2).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.75)
+                }
+                if e.flag("shared") { NativeExpensePaymentStatus(status: paymentStatus, compact: true) }
+                else { Text(e["active"] == .bool(false) ? "Inativa" : paymentStatus.complete ? "Paga" : "Pendente").font(.caption2).foregroundStyle(.secondary) }
+            }
+            .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+            .background(paymentStatus.complete ? Color.green.opacity(0.12) : nativePaper, in: RoundedRectangle(cornerRadius: min(12, p.cardRadius)))
+            .overlay { RoundedRectangle(cornerRadius: min(12, p.cardRadius)).strokeBorder(accent.opacity(0.15)) }
+        }.buttonStyle(.plain)
     }
     private var miniCard: some View {
         Button { open("detail") } label: {

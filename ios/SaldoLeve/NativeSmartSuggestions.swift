@@ -30,7 +30,7 @@ import SwiftUI
                 }
                 .task {
                     defer { loading = false }
-                    do { let result = try await store.api.get(JSONObject.self, action: "smart_suggestions", query: ["context": context, "q": text, "excludeId": excludeID]); suggestions = result.objects("suggestions"); if suggestions.isEmpty { issue = result.text("message").isEmpty ? "Nenhum padrão consistente encontrado." : result.text("message") } }
+                    do { let result = try await store.api.get(JSONObject.self, action: "smart_suggestions", query: ["context": context, "q": text, "excludeId": excludeID, "hideProtected": "1"]); suggestions = result.objects("suggestions"); if suggestions.isEmpty { issue = result.text("message").isEmpty ? "Nenhum padrão consistente encontrado." : result.text("message") } }
                     catch { store.noteConnectionFailure(error); issue = error.localizedDescription }
                 }
         }
