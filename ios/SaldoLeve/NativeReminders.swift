@@ -4,7 +4,7 @@ import UIKit
 
 @MainActor
 final class NativeReminders: NSObject, UNUserNotificationCenterDelegate {
-    var onOpen: ((String) -> Void)?
+    var onOpen: ((String, String?) -> Void)?
     private var queued: Task<Void, Never>?
     private let center = UNUserNotificationCenter.current()
     private var expenseRecords: [JSONObject] = []
@@ -82,7 +82,7 @@ final class NativeReminders: NSObject, UNUserNotificationCenterDelegate {
                 let dueDates = snapshot.items.filter { $0.isActive && !$0.paused }.compactMap(\.nextDate).sorted()
                 let all = NativeAlertPause.filter(NativeReminderPlan.build(snapshot, now: now, preferences: preferences) + NativeExpenseReminderPlan.build(expenses, now: now, preferences: preferences) + NativeStandaloneReminderPlan.build(general, now: now, preferences: preferences), until: pause)
                 let birthdayAlarms = Array(NativeAlertPause.filter(NativeBirthdayPlan.build(birthdayRecords, now: now, preferences: preferences), until: pause).prefix(20))
-                let otherAlarms = Array(all.sorted(by: { $0.date == $1.date ? $0.id < $1.id : $0.date < $1.date }).prefix(max(0, 60 - locations.count - birthdayAlarms.count - preservedBirthdayCount)))
+                let otherAlarms = NativeReminderPlan.select(all, limit: max(0, 60 - locations.count - birthdayAlarms.count - preservedBirthdayCount))
                 let alarms = (birthdayAlarms + otherAlarms).sorted { $0.date == $1.date ? $0.id < $1.id : $0.date < $1.date }
                 return (dueDates, alarms)
             }.value
@@ -97,6 +97,7 @@ final class NativeReminders: NSObject, UNUserNotificationCenterDelegate {
                 content.threadIdentifier = "sl-task-" + reminder.taskID
                 if preferences.badge { content.badge = NSNumber(value: computation.0.prefix { $0 <= reminder.date }.count) }
                 content.userInfo = ["taskID": reminder.taskID]
+                if let checkID = reminder.checkID { content.userInfo["checkID"] = checkID }
                 let interval = max(1, reminder.date.timeIntervalSinceNow)
                 try? await center.add(UNNotificationRequest(identifier: reminder.id, content: content,
                                                            trigger: UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)))
@@ -131,6 +132,7 @@ final class NativeReminders: NSObject, UNUserNotificationCenterDelegate {
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
         let id = response.notification.request.content.userInfo["taskID"] as? String
-        Task { @MainActor [weak self] in if let id { self?.onOpen?(id) }; completionHandler() }
+        let checkID = response.notification.request.content.userInfo["checkID"] as? String
+        Task { @MainActor [weak self] in if let id { self?.onOpen?(id,checkID) }; completionHandler() }
     }
 }

@@ -95,6 +95,12 @@ struct NativeTask: Codable, Identifiable, Equatable {
     func encode(to encoder: Encoder) throws { try fields.encode(to: encoder) }
     var id: String { fields.text("id") }
     var title: String { fields.text("title") }
+    var protectedPreview: NativeTask {
+        let allowed: Set<String> = ["id", "listId", "title", "status", "revision", "createdAt", "updatedAt"]
+        var preview = fields.filter { allowed.contains($0.key) }
+        preview["_categoryLocked"] = .bool(true)
+        return NativeTask(preview)
+    }
     var categoryID: String { fields.text("listId") }
     var status: String { fields.text("status") }
     var revision: Int { fields.integer("revision") }
@@ -179,12 +185,13 @@ struct NativeSnapshot: Codable {
     var lists: [NativeCategory] = []
     var items: [NativeTask] = []
     var hasMoreItems: Bool = false
+    var revisionToken = ""
     var preferences: JSONObject = [:]
     var activity: [JSONObject] = []
     var habits: [JSONObject] = []
     var users: [JSONObject] = []
     init() {}
-    enum CodingKeys: String, CodingKey { case configured, message, lists, items, hasMoreItems, preferences, activity, habits, users }
+    enum CodingKeys: String, CodingKey { case configured, message, lists, items, hasMoreItems, preferences, activity, habits, users, revisionToken }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         configured = try c.decodeIfPresent(Bool.self, forKey: .configured) ?? false
@@ -192,6 +199,7 @@ struct NativeSnapshot: Codable {
         lists = try c.decodeIfPresent([NativeCategory].self, forKey: .lists) ?? []
         items = try c.decodeIfPresent([NativeTask].self, forKey: .items) ?? []
         hasMoreItems = try c.decodeIfPresent(Bool.self, forKey: .hasMoreItems) ?? false
+        revisionToken = try c.decodeIfPresent(String.self, forKey: .revisionToken) ?? ""
         preferences = try c.decodeIfPresent(JSONObject.self, forKey: .preferences) ?? [:]
         activity = try c.decodeIfPresent([JSONObject].self, forKey: .activity) ?? []
         habits = try c.decodeIfPresent([JSONObject].self, forKey: .habits) ?? []
@@ -548,6 +556,7 @@ enum NativeTableImport {
 struct PlannedReminder: Identifiable, Equatable {
     let id: String, taskID: String, title: String, body: String
     let date: Date
+    var checkID: String? = nil
 }
 enum NativeReminderPlan {
     static func build(_ snapshot: NativeSnapshot, now: Date, limit: Int = 60, preferences: NativeNotificationPreferences = .init()) -> [PlannedReminder] {
@@ -578,7 +587,7 @@ enum NativeReminderPlan {
                 if preferences.atDueTime { events.append(("due", "Tarefa pendente", due)) }
                 if preferences.repeatOverdue {
                     let firstRepeat = due.addingTimeInterval(max(1, floor(now.timeIntervalSince(due) / interval) + 1) * interval)
-                    for index in 0..<8 { events.append(("repeat-\(index)", "Tarefa pendente", firstRepeat.addingTimeInterval(Double(index) * interval))) }
+                    for index in 0..<60 { events.append(("repeat-\(index)", "Tarefa pendente", firstRepeat.addingTimeInterval(Double(index) * interval))) }
                 }
                 var seen = Set<Date>()
                 for (suffix, title, candidate) in events {
@@ -587,11 +596,20 @@ enum NativeReminderPlan {
                     let fire = preferences.deliveryDate(candidate)
                     if fire <= now { continue }
                     guard seen.insert(fire).inserted else { continue }
-                    planned.append(PlannedReminder(id: "sl-task-\(task.id)-\(key)-\(suffix)", taskID: task.id, title: title, body: text, date: fire))
+                    planned.append(PlannedReminder(id: "sl-task-\(task.id)-\(key)-\(suffix)", taskID: task.id, title: title, body: text, date: fire, checkID: key == "main" ? nil : key))
                 }
             }
         }
-        return Array(planned.sorted { $0.date == $1.date ? $0.id < $1.id : $0.date < $1.date }.prefix(limit))
+        return select(planned, limit: limit)
+    }
+    static func select(_ reminders: [PlannedReminder], limit: Int) -> [PlannedReminder] {
+        let ordered = reminders.sorted { $0.date == $1.date ? $0.id < $1.id : $0.date < $1.date }
+        var targets = Set<String>()
+        let first = ordered.filter { targets.insert($0.taskID + "|" + ($0.checkID ?? "")).inserted }
+        var selected = Array(first.prefix(max(0, limit)))
+        let identifiers = Set(selected.map(\.id))
+        selected += ordered.filter { !identifiers.contains($0.id) }.prefix(max(0, limit - selected.count))
+        return selected.sorted { $0.date == $1.date ? $0.id < $1.id : $0.date < $1.date }
     }
 }
 

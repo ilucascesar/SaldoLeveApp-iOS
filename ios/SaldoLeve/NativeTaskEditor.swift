@@ -52,6 +52,7 @@ struct NativeTaskEditor: View {
     @State private var closing = false
     @State private var saveStatus = ""
     @State private var autosave: Task<Void, Never>?
+    @State private var transitionSave: Task<Void, Never>?
     @State private var syncNotice: String?
     @State private var reloading = false
     @State private var serverReady = false
@@ -142,6 +143,7 @@ struct NativeTaskEditor: View {
         }
     }
     private var editorList: some View {
+        ScrollViewReader { proxy in
         List {
             Section {
                 if loading { ProgressView("Carregando detalhes…") }
@@ -212,6 +214,13 @@ struct NativeTaskEditor: View {
             if store.offline || !store.networkAvailable { Text("Sem conexão com o servidor. Somente consulta: não é possível editar ou salvar.").font(.footnote).foregroundStyle(.orange).listRowSeparator(.hidden) }
         }
         .listStyle(.plain).scrollContentBackground(.hidden).background(nativePaper).scrollDismissesKeyboard(.interactively)
+        .task(id: loading) {
+            guard !loading, let id = store.highlightedCheckID, task.checks.contains(where: { $0.id == id }) else { return }
+            collapsedGroups = []
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            withAnimation { proxy.scrollTo(id, anchor: .center) }
+        }
+        }
     }
     private var synchronizedList: some View {
         editorList
@@ -251,8 +260,10 @@ struct NativeTaskEditor: View {
             }
         }
         .onChange(of: scenePhase) { phase in
-            if phase != .active { autosave?.cancel(); if !store.isPreview { serverReady = false } }
-            else if !store.isPreview { Task { await retrySync() } }
+            if phase == .inactive { finishBeforeBackground() }
+            else if phase == .active && !store.isPreview {
+                Task { await transitionSave?.value; await retrySync() }
+            }
         }
         .onChange(of: history) { open in if !open { Task { await reload() } } }
     }
@@ -371,7 +382,14 @@ struct NativeTaskEditor: View {
                     }
                 }.buttonStyle(.borderless).padding(.leading, 34).padding(.bottom, 4)
             }
-        }.background(NativeChecklistMarker(id: id, scroll: checklistScroll))
+        }
+        .id(id)
+        .overlay {
+            if store.highlightedCheckID == id {
+                RoundedRectangle(cornerRadius: 8).stroke(nativeBlue, lineWidth: 2).allowsHitTesting(false)
+            }
+        }
+        .background(NativeChecklistMarker(id: id, scroll: checklistScroll))
     }
     private var reorderSheet: some View {
         NavigationStack {
@@ -451,6 +469,27 @@ struct NativeTaskEditor: View {
         Task { if !(await commit(closing: true)) { discardConfirm = true } }
     }
     private func save() { guard editable else { return }; addCheck(); autosave?.cancel(); Task { _ = await commit(closing: true) } }
+    private func finishBeforeBackground() {
+        guard !store.isPreview, transitionSave == nil else { return }
+        autosave?.cancel()
+        guard editable else { serverReady = false; return }
+        addCheck()
+        if task.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let first = task.checks.first {
+            task.fields["title"] = .string(String(first.title.prefix(200)))
+        }
+        let background = UIApplication.shared.beginBackgroundTask(withName: "Salvar tarefa")
+        transitionSave = Task {
+            if task != baseline {
+                if saving {
+                    while saving && !Task.isCancelled { try? await Task.sleep(nanoseconds: 100_000_000) }
+                }
+                if task != baseline { _ = await commit(closing: false, background: true) }
+            }
+            serverReady = false
+            if background != .invalid { UIApplication.shared.endBackgroundTask(background) }
+            transitionSave = nil
+        }
+    }
     private func scheduleAutosave() {
         guard !saving else { return }
         autosave?.cancel()
@@ -461,8 +500,8 @@ struct NativeTaskEditor: View {
             Task { _ = await commit(closing: false) }
         }
     }
-    @discardableResult private func commit(closing shouldClose: Bool) async -> Bool {
-        guard !saving, !reloading, editable, store.canWrite else { return false }
+    @discardableResult private func commit(closing shouldClose: Bool, background: Bool = false) async -> Bool {
+        guard !saving, !reloading, editable || background && serverReady, store.canWrite else { return false }
         guard valid else { if shouldClose { failure = "Revise o título, as subtarefas e os valores." }; return false }
         if task == baseline && !task.id.isEmpty { if shouldClose { saved = true; dismiss() }; return true }
         let submitted = task
@@ -470,7 +509,7 @@ struct NativeTaskEditor: View {
         var succeeded = false
         defer { saving = false; closing = false; if succeeded && task != baseline { scheduleAutosave() } }
         do {
-            let receipt = try await NativeTaskSync.save(submitted, base: baseline, write: { try await store.save($0) }, read: { try await latestTask() })
+            let receipt = try await NativeTaskSync.save(submitted, base: baseline, write: { try await store.save($0) }, read: { try await latestTask(background: background) })
             if store.offline { await store.refresh() }
             let merge = NativeTaskMerge(local: task, base: submitted, remote: receipt.canonical)
             baseline = receipt.canonical
@@ -500,8 +539,10 @@ struct NativeTaskEditor: View {
             return false
         }
     }
-    private func latestTask() async throws -> NativeTask {
-        let details = try await store.taskDetails(task.id)
+    private func latestTask(background: Bool = false) async throws -> NativeTask {
+        let details: JSONObject
+        if background { details = try await store.api.get(JSONObject.self, action: "org_item", query: ["id": task.id]) }
+        else { details = try await store.taskDetails(task.id) }
         guard let item = details["item"], case .object(let fields) = item else { throw NativeFailure("Resposta de tarefa incompleta.") }
         return NativeTask(fields)
     }

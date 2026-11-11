@@ -23,6 +23,8 @@
     <string>UIInterfaceOrientationLandscapeRight</string>
   </array>
   <key>UIRequiresFullScreen</key><true/>
+  <key>UIBackgroundModes</key><array><string>fetch</string></array>
+  <key>BGTaskSchedulerPermittedIdentifiers</key><array><string>br.com.ilucascesar.saldoleve.refresh</string></array>
   <key>NSContactsUsageDescription</key><string>Ler nomes e aniversários dos contatos que você escolher importar, após sua conferência, para sua conta SaldoLeve. Telefones e e-mails não são importados.</string>
   <key>NSCameraUsageDescription</key><string>Fotografar comprovantes que você escolher anexar no SaldoLeve.</string>
   <key>NSPhotoLibraryUsageDescription</key><string>Selecionar imagens que você escolher anexar no SaldoLeve.</string>

@@ -7,6 +7,8 @@ struct NativeCategoryGate: View {
     @State private var password = ""
     @State private var busy = false
     @State private var issue: String?
+    @State private var recovery = false
+    @State private var accountPassword = ""
 
     private var usesPassword: Bool { store.categoryProtection(categoryID).text("mode") == "password" }
 
@@ -28,11 +30,19 @@ struct NativeCategoryGate: View {
                 .disabled(busy || usesPassword && password.isEmpty)
                 if busy { ProgressView() }
                 if let issue { Text(issue).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center) }
+                if usesPassword {
+                    Button("Esqueci a senha da categoria") { recovery = true }.font(.footnote)
+                }
             }.frame(maxWidth: 340).padding(24).frame(maxWidth: .infinity)
         }
         .task(id: store.categoryProtection(categoryID).text("revision")) {
             if !usesPassword { await unlock() }
         }
+        .alert("Redefinir proteção da categoria?", isPresented: $recovery) {
+            SecureField("Senha da sua conta SaldoLeve", text: $accountPassword)
+            Button("Cancelar", role: .cancel) { accountPassword = "" }
+            Button("Redefinir") { Task { await recover() } }
+        } message: { Text("Confirme a senha da sua conta para remover a senha esquecida desta categoria.") }
     }
 
     private func unlock() async {
@@ -41,6 +51,13 @@ struct NativeCategoryGate: View {
         defer { busy = false; password = "" }
         do { try await store.unlockCategory(categoryID, password: password) }
         catch { if !Task.isCancelled { issue = error.localizedDescription } }
+    }
+    private func recover() async {
+        guard !busy else { return }
+        busy = true; issue = nil
+        defer { busy = false; accountPassword = "" }
+        do { try await store.recoverCategoryProtection(categoryID, password: accountPassword) }
+        catch { issue = error.localizedDescription }
     }
 }
 

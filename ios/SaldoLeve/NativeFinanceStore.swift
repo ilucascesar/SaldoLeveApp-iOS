@@ -45,6 +45,11 @@ final class NativeFinanceStore: ObservableObject {
         let userID = parent.user?.id
         loading = true; defer { if refreshID == id { loading = false } }
         do {
+            let revision = snapshot.fields.text("revisionToken")
+            if !revision.isEmpty && !needsSync && !busy && !parent.offline {
+                let state = try await parent.api.get(JSONObject.self, action: "sync_status", query: ["domain": "finance"])
+                if state.text("revisionToken") == revision { return }
+            }
             let next = try await parent.api.get(NativeFinanceSnapshot.self, action: "bootstrap")
             guard parent.user?.id == userID, refreshID == id else { return }
             snapshot = next; needsSync = false; syncedAt = Date(); issue = nil

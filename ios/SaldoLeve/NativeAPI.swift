@@ -27,7 +27,7 @@ enum NativeKeychain {
     static func write(_ value: String?, account: String) {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "SaldoLeve.Native", kSecAttrAccount as String: account]
         guard let value else { SecItemDelete(query as CFDictionary); return }
-        let attributes: [String: Any] = [kSecValueData as String: Data(value.utf8), kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]
+        let attributes: [String: Any] = [kSecValueData as String: Data(value.utf8), kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
         if SecItemUpdate(query as CFDictionary, attributes as CFDictionary) == errSecItemNotFound {
             SecItemAdd(query.merging(attributes) { _, new in new } as CFDictionary, nil)
         }
@@ -59,6 +59,9 @@ final class NativeAPI {
         let credentialScope = address.home.deletingLastPathComponent().absoluteString + credentialNamespace
         storageID = SHA256.hash(data: Data(credentialScope.utf8)).map { String(format: "%02x", $0) }.joined()
         cookie = NativeKeychain.read("session-" + storageID)
+        for prefix in ["session-", "device-"] {
+            if let value = NativeKeychain.read(prefix + storageID) { NativeKeychain.write(value, account: prefix + storageID) }
+        }
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false
         config.httpCookieStorage = nil
@@ -198,7 +201,7 @@ final class NativeAPI {
         }
         let key: String?
         if action == "smart_preview" { key = nil }
-        else { key = pendingOperations[fingerprint] ?? UUID().uuidString; pendingOperations[fingerprint] = key }
+        else { key = pendingOperations[fingerprint] ?? "\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString)"; pendingOperations[fingerprint] = key }
         let (bytes, response) = try await transport(file: "api.php", query: ["api": action], body: payload, operationKey: key)
         guard let envelope = try? JSONDecoder().decode(NativeEnvelope<JSONObject>.self, from: bytes) else {
             throw NativeFailure("Resposta inválida ao salvar. Sincronize e confira antes de reenviar.", status: response.statusCode)

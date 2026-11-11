@@ -2,6 +2,7 @@ import SwiftUI
 import LocalAuthentication
 import UIKit
 import Network
+import WidgetKit
 
 @MainActor
 final class NativeStore: ObservableObject {
@@ -43,6 +44,7 @@ final class NativeStore: ObservableObject {
     @Published var taskDrawerRequested = false
     @Published var taskCategoryRequest: String?
     @Published var taskScopeRequest: String?
+    @Published var highlightedCheckID: String?
     private var previousUserID: String?
     var isPreview: Bool {
         #if DEBUG
@@ -106,16 +108,20 @@ final class NativeStore: ObservableObject {
     func taskByID(_ id: String) -> NativeTask? { confirmedSnapshot.items.first { $0.id == id } ?? snapshot.items.first { $0.id == id } }
     func publishTasks(_ source: NativeSnapshot) {
         confirmedSnapshot = source
+        let visible = projectTasks(source)
+        taskIndex = NativeTaskIndex(visible, userID: user?.id ?? "")
+        snapshot = visible
+    }
+    private func projectTasks(_ source: NativeSnapshot) -> NativeSnapshot {
         let protections = source.preferences.record("categoryProtection")
         unlockedCategories = unlockedCategories.filter { protections.record($0.key).text("revision") == $0.value }
         let hidden = Set(protections.keys.filter { unlockedCategories[$0] != protections.record($0).text("revision") })
         var visible = source
         if !hidden.isEmpty {
-            visible.items.removeAll { hidden.contains($0.categoryID) }
+            visible.items = visible.items.map { hidden.contains($0.categoryID) ? $0.protectedPreview : $0 }
             visible.activity.removeAll { hidden.contains($0.text("listId")) }
         }
-        taskIndex = NativeTaskIndex(visible, userID: user?.id ?? "")
-        snapshot = visible
+        return visible
     }
     func unlockCategory(_ id: String, password: String = "") async throws {
         guard let userID = user?.id else { return }
@@ -164,6 +170,7 @@ final class NativeStore: ObservableObject {
         unlockedCategories.removeValue(forKey: id)
         publishTasks(source)
         persist()
+        WidgetCenter.shared.reloadAllTimelines()
         await refreshExpenseReminders()
     }
     func relockCategories(_ id: String? = nil) {
@@ -176,12 +183,29 @@ final class NativeStore: ObservableObject {
         }
         publishTasks(confirmedSnapshot)
     }
+    func recoverCategoryProtection(_ id: String, password: String) async throws {
+        guard canWrite else { throw NativeFailure("Conecte-se para redefinir a proteção.") }
+        working = true
+        defer { working = false }
+        _ = try await api.post(action: "org_category_protection", body: [
+            "operation": .string("recover"), "listId": .string(id), "revision": .string(categoryProtection(id).text("revision")),
+            "accountPassword": .string(password)
+        ])
+        protectionUpdate = UUID()
+        var source = confirmedSnapshot
+        var protections = source.preferences.record("categoryProtection")
+        protections.removeValue(forKey: id)
+        source.preferences["categoryProtection"] = .object(protections)
+        publishTasks(source); persist()
+        WidgetCenter.shared.reloadAllTimelines()
+    }
 
     init() {
         let configURL = Bundle.main.url(forResource: "config", withExtension: "json")!
         let config = (try? Data(contentsOf: configURL)).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) }
         let address = SiteAddress(config?["serverURL"] ?? "") ?? SiteAddress("https://tools.ilucas.com.br/SaldoLeveApp/sistema.php")!
         api = NativeAPI(address: address)
+        previousUserID = UserDefaults.standard.string(forKey: "nativeUser-" + api.storageID)
         api.reviewWarnings = { warnings in await NativeWarningPresenter.confirm(warnings) }
         api.reviewDuplicate = { names in
             await NativeWarningPresenter.decide(title: "Possível cobrança duplicada",
@@ -199,7 +223,7 @@ final class NativeStore: ObservableObject {
             }
         }
         pathMonitor.start(queue: DispatchQueue(label: "SaldoLeve.connection"))
-        reminders.onOpen = { [weak self] id in
+        reminders.onOpen = { [weak self] id, checkID in
             guard let self, user != nil else { return }
             if id.hasPrefix("birthday:") { openedFinance = .init(kind: "birthdays", fields: ["id": .string(String(id.dropFirst(9)))]); return }
             if id.hasPrefix("reminder:") { openedFinance = .init(kind: "generalReminders"); return }
@@ -208,7 +232,7 @@ final class NativeStore: ObservableObject {
                 Task { await self.finance.refresh(); self.openedFinance = .init(kind: "detail", fields: ["id": .string(String(id.dropFirst(8)))]) }
                 return
             }
-            if let task = taskByID(id) { openedTask = task }
+            if let task = taskByID(id) { highlightedCheckID = checkID; openedTask = task }
         }
     }
     // One store for the app and for Siri, so both share the session and the
@@ -258,7 +282,7 @@ final class NativeStore: ObservableObject {
         }
         user = session.authenticated ? session.user : nil
         if !session.authenticated { reminders.clear(disable: false) }
-        if let user { previousUserID = user.id }
+        if let user { previousUserID = user.id; UserDefaults.standard.set(user.id, forKey: "nativeUser-" + api.storageID) }
     }
     func login(name: String, password: String) async {
         guard !working else { return }
@@ -297,11 +321,25 @@ final class NativeStore: ObservableObject {
         refreshing = true; defer { refreshing = false }
         let protectionAtStart = protectionUpdate
         do {
+            if !confirmedSnapshot.revisionToken.isEmpty && !offline && !needsSync && !working {
+                let change = try await api.get(JSONObject.self, action: "sync_status", query: ["domain": "organizer"])
+                if change.text("revisionToken") == confirmedSnapshot.revisionToken {
+                    await platform.refresh(); await refreshExpenseReminders(); await refreshGeneralReminders()
+                    return
+                }
+            }
             let next = try await load(NativeSnapshot.self, action: "org_bootstrap")
             guard next.configured else { throw NativeFailure(next.message ?? "Atualize as tabelas de Tarefas na hospedagem.") }
             guard user?.id == id, protectionAtStart == protectionUpdate else { return }
             UserDefaults.standard.set(next.preferences.text("theme"), forKey: "nativeTheme")
-            publishTasks(next); offline = false; needsSync = false; connectionProblem = false; syncedAt = Date()
+            let visible = projectTasks(next)
+            let accessAtStart = categoryAccessGeneration
+            let index = await Task.detached(priority: .userInitiated) { NativeTaskIndex(visible, userID: id) }.value
+            guard user?.id == id, protectionAtStart == protectionUpdate else { return }
+            confirmedSnapshot = next
+            taskIndex = accessAtStart == categoryAccessGeneration ? index : NativeTaskIndex(projectTasks(next), userID: id)
+            snapshot = projectTasks(next)
+            offline = false; needsSync = false; connectionProblem = false; syncedAt = Date()
             persist()
             await refreshExpenseReminders(); await refreshGeneralReminders(); await platform.refresh()
         } catch {
@@ -406,6 +444,7 @@ final class NativeStore: ObservableObject {
         return canonical
     }
     func complete(_ task: NativeTask) async {
+        guard canEdit(task) else { openedTask = task; return }
         if !task.isDone, let next = task.nextPendingCheck, task.usesManualPayment(next) {
             paymentTaskID = task.id; openedTask = task; return
         }
@@ -416,6 +455,7 @@ final class NativeStore: ObservableObject {
         catch { report(error) }
     }
     func toggle(_ check: NativeCheck, task: NativeTask) async {
+        guard canEdit(task) else { openedTask = task; return }
         var fields = task.fields
         fields["checklist"] = .array(task.checks.map { value in
             var copy = value.fields
@@ -458,7 +498,7 @@ final class NativeStore: ObservableObject {
         do { try await api.logout() }
         catch { report(error); return }
         NativeCache.remove(api.storageID)
-        reminders.clear(); user = nil; previousUserID = nil; unlockedCategories.removeAll(); publishTasks(NativeSnapshot())
+        reminders.clear(); user = nil; previousUserID = nil; UserDefaults.standard.removeObject(forKey: "nativeUser-" + api.storageID); unlockedCategories.removeAll(); publishTasks(NativeSnapshot())
         finance.reset(); platform.reset(); openedFinance = nil; expenseReminderIssue = nil
         syncedAt = nil; offline = false; needsSync = true; connectionProblem = false; locked = false
     }

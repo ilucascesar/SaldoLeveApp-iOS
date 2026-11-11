@@ -436,3 +436,16 @@ check(categoryLayouts.forTaskCategory("12").taskDetailDensity == "compact"
 check(categoryLayouts.forExpenseCategory("home").cardStyle == "compact"
     && categoryLayouts.forExpenseCategory("card").cardStyle == "cards", "Expense card styles are isolated by type")
 print("2.9.4: original checklist numbering and per-category layout passed.")
+
+let privateTask = NativeTask(["id": .string("9"), "listId": .string("12"), "title": .string("Contrato"), "status": .string("todo"), "body": .string("Confidencial"), "amountCents": .number(1000), "checklist": .array([.object(["id": .string("child"), "text": .string("Pessoa"), "done": .bool(false)])])])
+let protectedPreview = privateTask.protectedPreview
+check(protectedPreview.title == "Contrato" && protectedPreview.id == privateTask.id && protectedPreview.checks.isEmpty
+    && protectedPreview.fields.text("body").isEmpty && protectedPreview.fields["amountCents"] == nil,
+    "Protected tasks remain identifiable in Tudo and hide every content preview")
+let reminderExamples = [
+    PlannedReminder(id: "a1", taskID: "a", title: "Pendente", body: "", date: Date(timeIntervalSince1970: 100)),
+    PlannedReminder(id: "a2", taskID: "a", title: "Pendente", body: "", date: Date(timeIntervalSince1970: 200)),
+    PlannedReminder(id: "b1", taskID: "b", title: "Pendente", body: "", date: Date(timeIntervalSince1970: 300), checkID: "b-check")
+]
+check(NativeReminderPlan.select(reminderExamples, limit: 2).map(\.id) == ["a1", "b1"], "Repeated alarms cannot occupy the entire queue ahead of another pending item")
+print("2.10.0: protected task titles and fair reminder scheduling passed.")

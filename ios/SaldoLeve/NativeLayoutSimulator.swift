@@ -380,7 +380,7 @@ struct NativeSimTask: View {
                     if !current.fields.text("body").isEmpty { Text(current.fields.text("body")).font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(2) }
                     if let pending = current.pendingAmount { NativeTaskPendingAmount(amount: pending) }
                 }.listRowSeparator(.hidden).listRowBackground(Color.clear)
-                NativeTaskChecklist(checks: checks, money: legacyValues, receive: current.moneyMode == "receive", layout: layout, collapsed: layout.taskDetailExpandDone ? [] : ["done"]) { check, presentation in
+                NativeTaskChecklist(checks: checks, money: legacyValues, receive: current.moneyMode == "receive", layout: layout.forTaskCategory(current.categoryID), collapsed: layout.forTaskCategory(current.categoryID).taskDetailExpandDone ? [] : ["done"]) { check, presentation in
                     NativeInlineCheckRow(fields: .constant(check.fields), money: legacyValues, editable: true, presentation: presentation, attach: {}, remove: {})
                 }
             }.listStyle(.plain).scrollContentBackground(.hidden).scrollDisabled(true)

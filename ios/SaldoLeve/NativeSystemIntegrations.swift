@@ -26,6 +26,7 @@ import UserNotifications
 
 final class NativeAppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        NativeBackgroundRefresh.register()
         // iOS relaunches the app in the background when a saved place is crossed.
         NativeGeofence.shared.start()
         return true

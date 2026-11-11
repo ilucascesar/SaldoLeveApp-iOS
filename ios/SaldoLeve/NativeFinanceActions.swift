@@ -10,6 +10,8 @@ struct NativeFinanceActionForm: View {
     @State private var resume = false
     @State private var issue: String?
     @State private var confirming = false
+    @State private var baseVersion = ""
+    @State private var baseMonth = ""
     @Environment(\.dismiss) private var dismiss
     private var data: NativeFinanceSnapshot { finance.snapshot }
     private var calculation: JSONObject { data.transactionCalculation(route.fields.text("id")) }
@@ -76,6 +78,8 @@ struct NativeFinanceActionForm: View {
                 .confirmationDialog(title + "?", isPresented: $confirming, titleVisibility: .visible) { Button("Confirmar") { save() } }
                 .onChange(of: end) { date in if route.kind == "fixedAmount" { let month = String(NativeFinanceFormat.day(date).prefix(7)); amount = NativeFinanceFormat.input(route.fields.record("monthlyAmounts")[month]?.number ?? route.fields.decimal("amount")) } }
                 .onAppear {
+                    baseMonth = data.month
+                    baseVersion = data.invoice(route.fields.text("id"))?.text("version") ?? ""
                     if route.kind == "income" { amount = NativeFinanceFormat.input(data.active.decimal("income")) }
                     if route.kind == "invoice" { amount = data.invoice(route.fields.text("id")).map { NativeFinanceFormat.input($0.decimal("total")) } ?? "" }
                     if route.kind == "settle" { amount = NativeFinanceFormat.input(calculation.decimal("remainingValueAfterActive")) }
@@ -89,7 +93,7 @@ struct NativeFinanceActionForm: View {
             let action: String; var body: JSONObject = [:]
             switch route.kind {
             case "income": action = "save_income"; body["amount"] = .number(try NativeFinanceFormat.amount(amount, allowZero: true))
-            case "invoice": action = "save_invoice"; body = ["expenseId": route.fields["id"] ?? .string(""), "total": .number(try NativeFinanceFormat.amount(amount))]
+            case "invoice": action = "save_invoice"; body = ["expenseId": route.fields["id"] ?? .string(""), "total": .number(try NativeFinanceFormat.amount(amount)), "version": .string(baseVersion), "month": .string(baseMonth)]
             case "settle":
                 let paid = try NativeFinanceFormat.amount(amount)
                 guard paid <= calculation.decimal("remainingValueAfterActive") + 0.009 else { throw NativeFailure("O valor não pode superar o saldo futuro.") }

@@ -7,6 +7,7 @@ struct NativeFinanceScreen: View {
     var secondary = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicType
     @State private var search = ""
     @State private var status = "all"
     @State private var initialized = false
@@ -16,7 +17,11 @@ struct NativeFinanceScreen: View {
     @State private var route: NativeFinanceRoute?
     @AppStorage("nativeMoneyVisible") private var moneyVisible = false
     private var data: NativeFinanceSnapshot { finance.snapshot }
-    private var layout: NativeLayoutPreferences { store.layout }
+    private var layout: NativeLayoutPreferences {
+        var value = store.layout
+        if dynamicType.isAccessibilitySize { value.cardColumns = 1 }
+        return value
+    }
     private var expenses: [JSONObject] {
         let filtered = ordered(data.expenses.filter { e in
             let id = e.text("id")
@@ -226,10 +231,17 @@ struct NativeWebExpenseCard: View {
     @ObservedObject var finance: NativeFinanceStore
     let expenseID: String
     @Binding var route: NativeFinanceRoute?
+    @ScaledMetric(relativeTo: .body) private var accessibleScale = 1.0
+    @Environment(\.dynamicTypeSize) private var dynamicType
     private var data: NativeFinanceSnapshot { finance.snapshot }
     private var e: JSONObject { data.expense(expenseID) }
     private var c: JSONObject { data.expenseCalculation(expenseID) }
-    private var p: NativeLayoutPreferences { store.layout.forExpenseCategory(e.text("type")) }
+    private var p: NativeLayoutPreferences {
+        var value = store.layout.forExpenseCategory(e.text("type"))
+        value.textScale *= accessibleScale
+        if dynamicType.isAccessibilitySize { value.cardColumns = 1 }
+        return value
+    }
     private var accent: Color { Color(nativeHex: e.text("accent")) }
     private var compact: Bool { p.cardStyle == "compact" || p.cardColumns == 2 }
     private var progress: JSONObject { data.active.record("paymentProgress").record(expenseID) }

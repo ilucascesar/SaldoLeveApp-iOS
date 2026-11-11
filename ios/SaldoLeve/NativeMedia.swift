@@ -55,7 +55,8 @@ struct NativeCollectionTools: View {
                     Button("Exportar \(items.count) tarefas em JSON") {
                         do {
                             let url = FileManager.default.temporaryDirectory.appendingPathComponent("SaldoLeve-Tarefas-\(UUID().uuidString.prefix(8)).json")
-                            try JSONEncoder().encode(items).write(to: url, options: [.atomic, .completeFileProtection]); shared = NativeSharedFile(url: url)
+                            let report: JSONObject = ["format": .string("saldoleve-organizer-v1"), "exportedAt": .string(NativeDate.iso(Date())), "items": .array(items.map { .object($0.fields) })]
+                            try JSONEncoder().encode(report).write(to: url, options: [.atomic, .completeFileProtection]); shared = NativeSharedFile(url: url)
                         } catch { store.report(error) }
                     }
                 }
@@ -100,15 +101,15 @@ struct NativeMoneySummaryLine: View {
             else if !totals.isEmpty { Button { open = true } label: { Label("Este mês · a pagar \(NativeDate.money(totals["pay"]?.object["pending"]?.number)) · a receber \(NativeDate.money(totals["receive"]?.object["pending"]?.number))", systemImage: "chart.bar").font(.system(size: 12)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading) }.padding(9).background(nativePaper, in: RoundedRectangle(cornerRadius: 10)) }
         }
         .task(id: categoryID + String(describing: store.syncedAt)) {
-            guard !categoryID.isEmpty, !store.offline, !store.isPreview, store.snapshot.items.contains(where: { $0.categoryID == categoryID && $0.isMoney }) else { totals = [:]; return }
+            guard !categoryID.isEmpty, !store.offline, !store.isPreview, store.snapshot.items.contains(where: { $0.categoryID == categoryID && $0.pendingAmount != nil }) else { totals = [:]; return }
             do { let data = try await store.api.get(JSONObject.self, action: "org_money_summary", query: ["listId": categoryID, "month": NativeMonth.key(Date())]); if !Task.isCancelled { totals = data["totals"]?.object ?? [:] } } catch { }
         }
         .sheet(isPresented: $open) { NavigationStack { Form { details }.navigationTitle("Resumo do mês").navigationBarTitleDisplayMode(.inline).toolbar { Button("Fechar") { open = false } } }.presentationDetents([.medium, .large]) }
     }
     private var details: some View {
-        ForEach(["pay", "receive"], id: \.self) { mode in
+        ForEach(["normal", "pay", "receive"].filter { !(totals[$0]?.object ?? [:]).isEmpty }, id: \.self) { mode in
             let value = totals[mode]?.object ?? [:]
-            VStack(alignment: .leading, spacing: 8) { Text(mode == "pay" ? "A pagar" : "A receber").font(.headline); LabeledContent("Pendente", value: NativeDate.money(value["pending"]?.number)); LabeledContent("Pago / recebido", value: NativeDate.money(value["paid"]?.number)); if value.integer("unknown") > 0 { Text("\(value.integer("unknown")) valores a definir").font(.caption).foregroundStyle(.secondary) } }.padding(.vertical, 6)
+            VStack(alignment: .leading, spacing: 8) { Text(mode == "normal" ? "Valores das tarefas" : mode == "pay" ? "A pagar" : "A receber").font(.headline); LabeledContent("Pendente", value: NativeDate.money(value["pending"]?.number)); LabeledContent("Concluído", value: NativeDate.money(value["paid"]?.number)); if value.integer("unknown") > 0 { Text("\(value.integer("unknown")) valores a definir").font(.caption).foregroundStyle(.secondary) } }.padding(.vertical, 6)
         }
     }
 }

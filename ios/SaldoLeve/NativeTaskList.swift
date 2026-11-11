@@ -238,7 +238,7 @@ struct NativeTaskList: View {
             if task.status == "trashed" { Button("Restaurar") { Task { await store.changeStatus(task, to: "restore") } } }
             else { Button(task.isDone ? "Reabrir" : task.completionLabel) { Task { await store.complete(task) } }; Button(task.fields.flag("pinned") ? "Desafixar" : "Fixar no início") { patch(task, key: "pinned", value: .bool(!task.fields.flag("pinned"))) }; Button("Alterar data") { store.openedTask = task }; Button("Adiar 1 dia") { Task { await store.postpone(task) } }; Button(task.status == "archived" ? "Desarquivar" : "Arquivar") { Task { await store.changeStatus(task, to: task.status == "archived" ? "todo" : "archived") } }; Button("Mover para a lixeira", role: .destructive) { Task { await store.changeStatus(task, to: "trashed") } } }
         }
-        Button("Selecionar") { selecting = true; toggleSelection(task.id) }
+        Button("Selecionar") { selecting = true; toggleSelection(task.id) }.disabled(store.categoryLocked(task.categoryID))
         if store.canEdit(task) { Button("Duplicar tarefa") { Task { await store.duplicate(task) } } }
         ShareLink(item: ([task.title, task.fields.text("body")] + task.checks.map { ($0.done ? "☑ " : "☐ ") + $0.title }).joined(separator: "\n")) { Label("Compartilhar", systemImage: "square.and.arrow.up") }
     }
@@ -326,6 +326,7 @@ struct NativeTaskFilterEditor: View {
 }
 struct NativeTaskRow: View {
     @ObservedObject var store: NativeStore
+    @ScaledMetric(relativeTo: .body) private var accessibleScale = 1.0
     let task: NativeTask
     var showCategory = true
     var selecting = false
@@ -337,7 +338,7 @@ struct NativeTaskRow: View {
             Button { if selecting { select() } else { Task { await store.complete(task) } } } label: { Image(systemName: selecting ? (selected ? "checkmark.circle.fill" : "circle") : task.isDone ? "checkmark.circle.fill" : "circle").font(.system(size: 23, weight: .light)).foregroundStyle(task.isDone ? Color.secondary.opacity(0.6) : nativeBlue).frame(width: 32, height: 44) }.disabled(!selecting && (!store.canEdit(task) || !["todo", "doing", "done"].contains(task.status))).accessibilityLabel(selecting ? "Selecionar " + task.title : task.isDone ? "Reabrir " + task.title : task.completionLabel + " " + task.title)
             Button { if selecting { select() } else if let onOpen { onOpen() } else { store.openedTask = task } } label: {
                 VStack(alignment: .leading, spacing: 5) {
-                    HStack(alignment: .firstTextBaseline, spacing: 5) { if task.fields.flag("pinned") { Image(systemName: "pin.fill").font(.system(size: 10)).foregroundStyle(nativeBlue) }; Text(task.title).font(.system(size: 16 * store.layout.textScale, weight: .medium)).strikethrough(task.isDone).foregroundStyle(task.isDone ? Color(uiColor: .secondaryLabel) : Color(uiColor: .label)).multilineTextAlignment(.leading) }
+                    HStack(alignment: .firstTextBaseline, spacing: 5) { if store.categoryLocked(task.categoryID) { Image(systemName: "lock.fill").foregroundStyle(.secondary).accessibilityLabel("Conteúdo protegido") }; if task.fields.flag("pinned") { Image(systemName: "pin.fill").font(.system(size: 10)).foregroundStyle(nativeBlue) }; Text(task.title).font(.system(size: 16 * store.layout.textScale * accessibleScale, weight: .medium)).strikethrough(task.isDone).foregroundStyle(task.isDone ? Color(uiColor: .secondaryLabel) : Color(uiColor: .label)).multilineTextAlignment(.leading) }
                     if !task.fields.text("body").isEmpty { Text(task.fields.text("body")).font(.system(size: 12)).foregroundStyle(Color(uiColor: .secondaryLabel)).lineLimit(2).multilineTextAlignment(.leading) }
                     ViewThatFits(in: .horizontal) { HStack(spacing: 9) { dateMeta; otherMeta }; VStack(alignment: .leading, spacing: 4) { dateMeta; otherMeta } }
                     if store.layout.taskShowAmounts, let pending = task.pendingAmount { Text("Total pendente " + NativeDate.money(pending)).font(.system(size: 12)).foregroundStyle(Color(uiColor: .secondaryLabel)) }

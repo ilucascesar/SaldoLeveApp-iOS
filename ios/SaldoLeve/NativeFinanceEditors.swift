@@ -145,7 +145,7 @@ struct NativeExpenseEditor: View {
         Task { do {
             let division = shared ? try NativeFinanceFormat.shares(shares, ids: ids) : [:]
             var body: JSONObject = ["name": .string(name.trimmingCharacters(in: .whitespacesAndNewlines)), "type": .string(type), "sharedWith": .array(shared ? selected.sorted().map(JSONValue.string) : []), "shares": .object(division)]
-            if !original.text("id").isEmpty { body["id"] = original["id"] }
+            if !original.text("id").isEmpty { body["id"] = original["id"]; body["version"] = original["version"] ?? .string("") }
             _ = try await finance.save(original.text("id").isEmpty ? "create_expense" : "update_expense", body); dismiss()
         } catch { issue = error.localizedDescription } }
     }
@@ -212,7 +212,7 @@ struct NativeTransactionEditor: View {
     private func save() {
         Task { do {
             var body: JSONObject = ["expenseId": .string(expenseID), "desc": .string(description.trimmingCharacters(in: .whitespacesAndNewlines)), "category": .string(category), "amount": .number(try NativeFinanceFormat.amount(amount)), "type": .string(type), "date": .string(NativeFinanceFormat.day(day)), "note": .string(note)]
-            if editing { body["id"] = original["id"] }
+            if editing { body["id"] = original["id"]; body["version"] = original["version"] ?? .string("") }
             if type == "installment" { body["installments"] = .number(Double(installments)); body["installmentStart"] = .number(Double(installmentStart)) }
             if type == "fixed" { body["endMonth"] = hasEnd ? .string(String(NativeFinanceFormat.day(end).prefix(7))) : .null }
             let response = try await finance.save(editing ? "update_transaction" : "create_transaction", body)

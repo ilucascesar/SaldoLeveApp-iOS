@@ -75,7 +75,7 @@ struct NativeRootView: View {
         .onChange(of: store.section) { section in if section != .tasks { store.relockCategories() } }
         .onChange(of: quickActions.pending) { _ in runQuickAction() }
         .onChange(of: scenePhase) { phase in
-            if phase == .background { wasInBackground = true; store.relockCategories() } else if phase == .active { wasInBackground = false }
+            if phase == .background { wasInBackground = true; store.relockCategories(); NativeBackgroundRefresh.schedule() } else if phase == .active { wasInBackground = false }
             if phase != .active { store.persist() }
             if phase == .background && UserDefaults.standard.bool(forKey: "nativeBiometrics") { store.locked = store.user != nil }
             if phase == .active {

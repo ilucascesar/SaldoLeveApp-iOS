@@ -84,9 +84,6 @@ struct SaldoWidgetProvider: AppIntentTimelineProvider {
             try? JSONEncoder().encode(feed).write(to: cache, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             return .init(date: Date(), configuration: configuration, feed: feed)
         } catch {
-            if let bytes = try? Data(contentsOf: cache), let feed = try? JSONDecoder().decode(SaldoWidgetFeed.self, from: bytes), let generated = ISO8601DateFormatter().date(from: feed.generatedAt), Date().timeIntervalSince(generated) >= 0, Date().timeIntervalSince(generated) <= 86400 {
-                return .init(date: Date(), configuration: configuration, feed: feed, error: "Sem atualização", cached: true)
-            }
             try? FileManager.default.removeItem(at: cache)
             return .init(date: Date(), configuration: configuration, feed: nil, error: "Não foi possível atualizar. Confira a conexão e a API na HostGator.")
         }

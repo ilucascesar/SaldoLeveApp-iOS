@@ -1,31 +1,19 @@
-# SaldoLeveApp — iOS
+# SaldoLeve para iPhone
 
-Repositório público do aplicativo nativo SaldoLeve para iPhone, escrito em SwiftUI, com extensão WidgetKit e testes usando dados sintéticos. Contém somente o cliente iOS e sua compilação. O backend PHP, o banco de dados, os anexos e as credenciais da instalação não fazem parte deste repositório.
+Cliente SwiftUI do SaldoLeve com extensões WidgetKit e Compartilhar.
 
-## Compilar no GitHub
+## Versão 2.10.0
 
-Em Actions → Compilar SaldoLeve iOS, execute Run workflow. Por padrão, o runner xcode-27 compila para iPhone físico ARM64, executa os testes dos modelos e de sincronização e inspeciona o IPA. O artefato SaldoLeve-IPA-AltStore contém SaldoLeve-unsigned.ipa.
+Tarefas protegidas permanecem identificáveis em Tudo. A abertura pede Face ID ou a senha escrita da categoria. O cliente oculta descrição, subtarefas e valores até o desbloqueio. A recuperação da senha da categoria exige a senha escrita da conta.
 
-Marque run_ui_tests quando precisar validar a interface: a seleção atual cobre o widget (opções, simulador e instalação do vertical na Tela de Início), a central de Configurações, a conclusão e importação de aniversariantes e o pagamento de parcelas em Mais opções. full_ui_tests executa a bateria completa, incluindo widgets na Tela de Início, contatos e gestos. Quando selecionados, esses testes precisam passar antes da publicação do artefato. Ajuste a seleção ao mudar outros fluxos. A geração comum não recompila o simulador; ela reaproveita o cache do Xcode quando disponível.
+O editor tenta concluir o envio ao alternar de aplicativo. Notificações abrem a subtarefa correspondente. A atualização oportunista em segundo plano recalcula os avisos, respeitando o agendamento do iOS. O widget solicita atualização ao alterar a proteção e apresenta indisponibilidade quando a conexão falha.
 
-A compilação não recebe senha Apple, certificado ou perfil de provisionamento. Instale o IPA com seu instalador de sideload e sua própria conta Apple. A assinatura gratuita precisa ser renovada. O app exige uma instalação compatível do backend e um login válido nessa instalação.
+As gravações financeiras conferem a versão do registro. Os layouts e a exportação das tarefas mantêm compatibilidade com o servidor 2.10.0. O app usa a instalação em https://tools.ilucas.com.br/SaldoLeve/.
 
-Na versão 2.7.3, o app abre direto nos últimos dados confirmados enquanto atualiza com o servidor; o aviso por local só é enviado para tarefas com subtarefas pendentes e lista esses itens; locais e tarefas podem ser excluídos deslizando; o mapa do local não deforma com zoom; e Configurações → Aparência permite trocar o ícone do app. O backend continua o 2.7.0.
+## Compilação
 
-Na versão 2.7.2, os avisos ao chegar ou sair de um local funcionam com ou sem data: com a permissão “Sempre”, o iOS acorda o app a cada travessia e o aviso sai na hora, mesmo com o app fechado. O local é escolhido num mapa com marcador e raio ajustável, há simulação de chegada e saída e um histórico das detecções. Ao abrir, o app mostra “Atualizando” em vez de “Sem conexão” enquanto o servidor responde. O backend continua o 2.7.0.
+O workflow Compilar SaldoLeve iOS gera o IPA ARM64, executa os testes de modelos e sincronização e inspeciona o pacote. A geração padrão usa o cache do Xcode. Os testes de simulador são opcionais pelos parâmetros run_ui_tests e full_ui_tests.
 
-Na versão 2.7.1, “E aí Siri, me lembra de…” chega ao SaldoLeve pelo app Lembretes: com a importação ativa em Configurações → Siri e Atalhos, os lembretes pendentes da lista escolhida (padrão “SaldoLeve”) viram tarefas e são concluídos no Lembretes depois da confirmação do servidor. O backend continua o 2.7.0.
+O artefato SaldoLeve-IPA-AltStore contém o IPA sem assinatura. Instale com o assinador de sua preferência e sua conta Apple.
 
-Na versão 2.7.0, o widget ganha opções de aparência (cor, fundo, marcador, separadores, contagens) e um simulador fixo; aniversariantes podem ser concluídos, ter avisos persistentes e sincronizar com os Contatos; a Siri cria tarefas (“criar tarefa”, “adicionar lembrete” ou “me lembre” no SaldoLeve, respondendo falando ou escrevendo); o ícone oferece Nova tarefa e Suspender avisos; e há lembretes por local ao chegar ou sair de lugares salvos. Envie primeiro o backend 2.7.0 (API 7).
-
-Na versão 2.6.0, as abas principais passam a ser Despesas (com o mês em aberto, resumos, filtros e cards) e Agenda. Configurações → Layout traz um simulador ao vivo para Despesas, Agenda, tarefa aberta e widgets, além de quatro estilos personalizáveis para tarefas com muitas subtarefas. O widget abre direto a Agenda, sem mini cards, e o formato vertical usa toda a altura. Envie primeiro o backend 2.6.0 para salvar os novos layouts. A geração padrão valida os modelos e o IPA, sem executar o simulador.
-
-## Widgets
-
-A partir da versão 2.5.3, todas as preferências do app estão em Configurações, separadas por categorias e com busca. No iOS 27 ou posterior, a galeria também oferece SaldoLeve · Lista ampliada, uma identidade própria para adicionar diretamente o widget vertical, inclusive quando uma instância antiga não troca de tamanho. O conteúdo é uma lista agrupada por prazo, sem mini cards; o formato vertical usa toda a altura (até 30 linhas) e o toque abre a Agenda do app. A compilação verifica a instalação do tamanho vertical na Tela de Início, além de abrir o menu.
-
-O código de conexão do widget é gerado na conta do usuário, nunca fica nos arquivos de compilação e não deve ser publicado em issues, logs ou capturas.
-
-## Verificação local em um Mac
-
-Use Xcode 27 ou superior. Execute `bash ios/scripts/build-unsigned.sh` para os testes de modelos/sincronização e para o IPA, e `bash ios/scripts/preview-simulator.sh` para as interações. Em Windows, use o GitHub Actions. O projeto pode ser recriado com `node ios/scripts/generate-project.cjs`.
+Este repositório contém apenas o cliente nativo e recursos revisados. O servidor, o banco, os comprovantes e as credenciais ficam na instalação privada.

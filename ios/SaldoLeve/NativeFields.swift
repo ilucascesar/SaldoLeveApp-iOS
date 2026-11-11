@@ -203,6 +203,7 @@ struct NativeCheckEditor: View {
 
 struct NativeInlineCheckRow: View {
     @Binding var fields: JSONObject
+    @ScaledMetric(relativeTo: .body) private var accessibleScale = 1.0
     let money: Bool
     let editable: Bool
     var saving = false
@@ -341,7 +342,7 @@ struct NativeInlineCheckRow: View {
             else { fields["done"] = .bool(!done) }
         } label: {
             Image(systemName: done ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: size, weight: done ? .regular : .light))
+                .font(.system(size: size * accessibleScale, weight: done ? .regular : .light))
                 .foregroundStyle(done ? Color.green.opacity(0.75) : (p.state == "overdue" ? Color.red : nativeBlue))
                 .background(Circle().fill(node ? nativePaper : Color.clear).frame(width: size + 2, height: size + 2))
                 .frame(width: 26, height: height)
@@ -350,7 +351,7 @@ struct NativeInlineCheckRow: View {
     private func title(size: CGFloat, weight: Font.Weight, minHeight: CGFloat) -> some View {
         TextField("Nome da subtarefa", text: Binding(get: { fields.text("text") }, set: { fields["text"] = .string(String($0.prefix(300))) }))
             .submitLabel(.next).onSubmit(submit)
-            .font(.system(size: size, weight: weight)).strikethrough(done, color: .secondary)
+            .font(.system(size: size * accessibleScale, weight: weight)).strikethrough(done, color: .secondary)
             .foregroundStyle(done ? Color.secondary : Color.primary).lineLimit(1...8)
             .frame(minHeight: minHeight).disabled(!editable)
     }
@@ -363,7 +364,7 @@ struct NativeInlineCheckRow: View {
     }
     private func amountButton(size: CGFloat, weight: Font.Weight, monospaced: Bool = false) -> some View {
         Button { if done { values() } else { payment() } } label: {
-            Text(amountText).font(.system(size: size, weight: weight, design: monospaced ? .monospaced : .rounded))
+            Text(amountText).font(.system(size: size * accessibleScale, weight: weight, design: monospaced ? .monospaced : .rounded))
                 .foregroundStyle(done ? Color.secondary : Color.primary).lineLimit(1).minimumScaleFactor(0.7).fixedSize(horizontal: !monospaced, vertical: false)
         }.disabled(!editable).accessibilityLabel((done ? "Valor pago " : "Valor ") + amountText)
     }

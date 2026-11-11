@@ -37,6 +37,13 @@ import CryptoKit
         loading = true; defer { loading = false }
         let userID = parent.user?.id
         do {
+            if loaded && !saving && !parent.working {
+                let revision = snapshot.revisionToken
+                if !revision.isEmpty {
+                    let state = try await parent.api.get(JSONObject.self, action: "sync_status", query: ["domain": "platform"])
+                    if state.text("revisionToken") == revision { return }
+                }
+            }
             let next = try await parent.api.get(NativePlatformSnapshot.self, action: "platform_bootstrap")
             guard parent.user?.id == userID else { return }
             snapshot = next; loaded = true; issue = nil; applyRemoteLayout()
