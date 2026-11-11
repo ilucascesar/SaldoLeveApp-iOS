@@ -35,7 +35,7 @@ final class NativeChecklistScroll {
         ticket += 1
         let attached = markers.compactMapValues { $0.view?.window == nil ? nil : $0.view }
         guard let marker = attached.values.first, let scrollView = enclosingScrollView(marker),
-              !scrollView.isTracking, !scrollView.isDecelerating else { return nil }
+              !scrollView.isDragging, !scrollView.isDecelerating else { return nil }
         list = scrollView
         let visible = CGRect(origin: scrollView.contentOffset, size: scrollView.bounds.size).inset(by: scrollView.adjustedContentInset)
         let offsets = attached.compactMap { id, view -> (id: String, top: CGFloat)? in
@@ -59,7 +59,7 @@ final class NativeChecklistScroll {
     }
 
     private func apply(_ anchor: Anchor, ticket current: Int) -> Bool {
-        guard current == ticket, let list, list.window != nil, !list.isTracking, !list.isDecelerating else { return false }
+        guard current == ticket, let list, list.window != nil, !list.isDragging, !list.isDecelerating else { return false }
         list.layoutIfNeeded()
         var target = anchor.fallback
         for (id, top) in anchor.offsets {

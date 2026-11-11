@@ -82,7 +82,7 @@ struct NativeNotificationSettings: View {
         requesting = true
         Task {
             defer { requesting = false }
-            do { let granted = try await store.reminders.enable(store.snapshot); if !granted { store.message = "Notificações bloqueadas pelo iOS. Use Abrir ajustes de notificações para permitir." } else { await store.refreshGeneralReminders() } }
+            do { let granted = try await store.reminders.enable(store.reminderSnapshot); if !granted { store.message = "Notificações bloqueadas pelo iOS. Use Abrir ajustes de notificações para permitir." } else { await store.refreshGeneralReminders() } }
             catch { store.report(error) }
             await reload()
         }
