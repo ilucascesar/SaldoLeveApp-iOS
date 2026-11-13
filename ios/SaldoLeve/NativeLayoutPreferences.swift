@@ -45,6 +45,13 @@ struct NativeLayoutPreferences: Codable, Equatable {
     var taskDefaultTo = ""
     var taskDetailLayout = "elegant"
     var taskCategoryLayouts: [String: String] = [:]
+    var taskItemLayouts: [String:String] = [:]
+    var taskCheckLayouts: [String:String] = [:]
+    var taskCompactTextScale = 1.0
+    var taskCompactSpacing = "tight"
+    var taskCompactNumbers = false
+    var taskCompactProgress = true
+    var taskCompactAmounts = false
     var expenseCategoryStyles: [String: String] = [:]
     var taskDetailGrouping = "status"
     var taskDetailProgress = true
@@ -56,6 +63,28 @@ struct NativeLayoutPreferences: Codable, Equatable {
     var taskDetailDensity = "regular"
     static let taskDetailStyles = ["elegant", "cards", "timeline", "ledger", "minimal"]
     static let taskDetailGroupings = ["status", "date", "none"]
+    func compactTemplate() -> Self {
+        var result = self
+        result.taskDetailLayout = "compact"; result.taskDetailDensity = taskCompactSpacing == "tight" ? "compact" : "regular"
+        result.taskDetailMetadata = true; result.taskDetailPills = false
+        result.taskDetailNumbers = taskCompactNumbers; result.taskDetailProgress = taskCompactProgress; result.taskDetailAmounts = taskCompactAmounts
+        result.taskDetailGrouping = "status"; result.textScale = taskCompactTextScale
+        return result
+    }
+    func forTask(_ task: NativeTask) -> Self {
+        let base = forTaskCategory(task.categoryID)
+        return choosing(taskItemLayouts[task.id],base:base)
+    }
+    func forCheck(_ check: NativeCheck,taskID: String) -> Self {
+        choosing(taskCheckLayouts[taskID + ":" + check.id],base:self)
+    }
+    private func choosing(_ style: String?,base: Self) -> Self {
+        switch style {
+        case "compact": return compactTemplate()
+        case "regular": var normal = base; normal.taskDetailLayout = "elegant"; normal.taskDetailDensity = "regular"; normal.taskDetailMetadata = true; return normal
+        default: return base
+        }
+    }
     func forTaskCategory(_ id: String) -> Self {
         guard let style = taskCategoryLayouts[id] else { return self }
         var result = self
@@ -95,7 +124,26 @@ struct NativeLayoutPreferences: Codable, Equatable {
     var spacing: Double { density == "compact" ? 8 : density == "spacious" ? 20 : 14 }
     var rowPadding: Double { density == "compact" ? 2 : density == "spacious" ? 10 : 5 }
     var visibleDashboard: [String] { dashboardOrder.filter { !dashboardHidden.contains($0) } }
+    mutating func resetArea(_ area: String) {
+        guard let encoded = try? JSONEncoder().encode(self), let defaults = try? JSONEncoder().encode(Self()),
+              var current = try? JSONDecoder().decode(JSONObject.self,from:encoded),let original = try? JSONDecoder().decode(JSONObject.self,from:defaults) else { return }
+        for (key,value) in original {
+            let selected: Bool
+            switch area {
+            case "expenses": selected = key.hasPrefix("card") || key.hasPrefix("expense") || key.hasPrefix("dashboard") || ["showSearch","showMonth"].contains(key)
+            case "agenda": selected = key.hasPrefix("taskDefault") || key.hasPrefix("taskShow") || ["taskQuickCapture","taskGroupByDate"].contains(key)
+            case "task": selected = key.hasPrefix("taskCompact")
+            default: selected = ["startPage","tabOrder","showBottomBar","compactHeader","density","textScale","roundedValues"].contains(key)
+            }
+            if selected { current[key] = value }
+        }
+        if let data = try? JSONEncoder().encode(current),let reset = try? JSONDecoder().decode(Self.self,from:data) { self = reset }
+    }
     mutating func normalize() {
+        taskItemLayouts = taskItemLayouts.filter { Int($0.key).map { $0 > 0 } == true && ["compact","regular"].contains($0.value) }
+        taskCheckLayouts = taskCheckLayouts.filter { $0.key.range(of:"^[1-9][0-9]{0,19}:[A-Za-z0-9_-]{1,64}$",options:.regularExpression) != nil && ["compact","regular"].contains($0.value) }
+        taskCompactTextScale = taskCompactTextScale.isFinite ? min(1.3,max(0.85,taskCompactTextScale)) : 1
+        if !["tight","comfortable"].contains(taskCompactSpacing) { taskCompactSpacing = "tight" }
         let tabs = ["dashboard", "tasks"]
         let blocks = ["balance", "totals", "expenses", "pending", "shortcuts"]
         func ordered(_ supplied: [String], _ allowed: [String]) -> [String] {

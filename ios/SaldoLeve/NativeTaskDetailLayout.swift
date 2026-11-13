@@ -161,6 +161,7 @@ struct NativeCheckPresentation: Equatable {
     var amounts = true
     var pills = true
     var compact = false
+    var textScale = 1.0
     var receive = false
     var tint: Color {
         switch state {
@@ -191,6 +192,7 @@ struct NativeTaskChecklist<Row: View>: View {
     let money: Bool
     var receive = false
     let layout: NativeLayoutPreferences
+    var taskID = ""
     let collapsed: Set<String>
     var toggle: (String) -> Void = { _ in }
     let row: (NativeCheck, NativeCheckPresentation) -> Row
@@ -204,7 +206,8 @@ struct NativeTaskChecklist<Row: View>: View {
                 if !collapsed.contains(group.id) {
                     ForEach(Array(group.ids.enumerated()), id: \.element) { offset, id in
                         if let check = checks.first(where: { $0.id == id }) {
-                            let presentation = NativeCheckPresentation(style: style, state: NativeCheckState.of(check), days: NativeCheckState.days(check), number: layout.taskDetailNumbers || style == "ledger" ? numbers[id] : nil, first: offset == 0, last: offset == group.ids.count - 1, stripe: offset % 2 == 1, metadata: layout.taskDetailMetadata, amounts: layout.taskDetailAmounts, pills: layout.taskDetailPills, compact: layout.taskDetailDensity == "compact", receive: receive)
+                            let individual = layout.forCheck(check,taskID:taskID)
+                            let presentation = NativeCheckPresentation(style: individual.taskDetailLayout, state: NativeCheckState.of(check), days: NativeCheckState.days(check), number: individual.taskDetailNumbers || individual.taskDetailLayout == "ledger" ? numbers[id] : nil, first: offset == 0, last: offset == group.ids.count - 1, stripe: offset % 2 == 1, metadata: individual.taskDetailMetadata, amounts: individual.taskDetailAmounts, pills: individual.taskDetailPills, compact: individual.taskDetailDensity == "compact", textScale:individual.textScale, receive: receive)
                             row(check, presentation).modifier(NativeTaskDetailRowChrome(presentation: presentation))
                         }
                     }

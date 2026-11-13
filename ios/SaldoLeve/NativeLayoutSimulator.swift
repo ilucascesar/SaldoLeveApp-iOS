@@ -3,26 +3,28 @@ import SwiftUI
 // Live preview of the layout being edited. It renders the draft preferences
 // with the account's own data (or samples) and never writes anything.
 enum NativeSimulatorScreen: String, CaseIterable, Identifiable {
-    case expenses = "Despesas", agenda = "Agenda", task = "Tarefa aberta"
+    case expenses = "Despesas", agenda = "Tarefas", task = "Subtarefas compactas", general = "Geral do app"
+    var key: String { switch self { case .expenses:return "expenses";case .agenda:return "agenda";case .task:return "task";case .general:return "general" } }
     var id: String { rawValue }
-    var icon: String { switch self { case .expenses: return "wallet.pass"; case .agenda: return "checkmark.circle"; case .task: return "list.bullet.rectangle" } }
+    var icon: String { switch self { case .expenses: return "wallet.pass"; case .agenda: return "checkmark.circle"; case .task: return "list.bullet.rectangle";case .general:return "gearshape" } }
 }
 
 struct NativeSimulatorPanel: View {
     @ObservedObject var store: NativeStore
     let layout: NativeLayoutPreferences
     @Binding var screen: NativeSimulatorScreen
+    var allowedScreens: [NativeSimulatorScreen] = NativeSimulatorScreen.allCases
     var expand: () -> Void
     @AppStorage("nativeSimulatorVisible") private var visible = true
     var body: some View {
         VStack(spacing: 0) {
             if visible {
                 HStack(alignment: .top, spacing: 14) {
-                    NativeSimulatorDevice(store: store, layout: layout, screen: screen, scale: 0.38)
+                    NativeSimulatorDevice(store: store, layout: layout, screen: screen, scale: 0.30)
                     VStack(alignment: .leading, spacing: 7) {
                         Label("Simulador", systemImage: "iphone").font(.headline)
                         Text(layout == store.layout ? "Igual ao layout salvo." : "Prévia das alterações. Nada muda no app até tocar em Salvar.").font(.caption).foregroundStyle(layout == store.layout ? Color.secondary : nativeBlue).fixedSize(horizontal: false, vertical: true)
-                        ForEach(NativeSimulatorScreen.allCases) { value in
+                        ForEach(allowedScreens) { value in
                             Button { withAnimation(.easeInOut(duration: 0.2)) { screen = value } } label: {
                                 Label(value.rawValue, systemImage: value.icon).font(.system(size: 13, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
                                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).padding(.vertical, 8)
@@ -45,12 +47,13 @@ struct NativeSimulatorFullScreen: View {
     @ObservedObject var store: NativeStore
     let draft: NativeLayoutPreferences
     @Binding var screen: NativeSimulatorScreen
+    var allowedScreens: [NativeSimulatorScreen] = NativeSimulatorScreen.allCases
     @Environment(\.dismiss) private var dismiss
     @State private var showSaved = false
     var body: some View {
         NavigationStack {
             VStack(spacing: 12) {
-                Picker("Tela", selection: $screen) { ForEach(NativeSimulatorScreen.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented)
+                Picker("Tela", selection: $screen) { ForEach(allowedScreens) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented)
                 Picker("Versão", selection: $showSaved) { Text("Com as alterações").tag(false); Text("Layout salvo").tag(true) }.pickerStyle(.segmented)
                 GeometryReader { proxy in
                     let scale = min(proxy.size.width / NativeSimulatorDevice.size.width, proxy.size.height / NativeSimulatorDevice.size.height)
@@ -88,6 +91,7 @@ struct NativeSimulatorDevice: View {
         case .expenses: NativeSimExpenses(store: store, finance: store.finance, layout: layout)
         case .agenda: NativeSimAgenda(store: store, layout: layout)
         case .task: NativeSimTask(store: store, layout: layout)
+        case .general: NativeSimGeneral(store:store,layout:layout)
         }
     }
 }
@@ -258,8 +262,8 @@ struct NativeSimAgenda: View {
     let layout: NativeLayoutPreferences
     private var t: Double { layout.textScale }
     private var tasks: [NativeTask] {
-        let real = store.snapshot.items.filter(\.isActive).sorted { ($0.listDate ?? .distantFuture) < ($1.listDate ?? .distantFuture) }
-        if !real.isEmpty { return Array(real.prefix(8)) }
+        let real = NativeTaskQuery.select(store.snapshot,scope:.all,categoryID:"",tag:"",search:"",sort:NativeTaskSort(rawValue:layout.taskDefaultSort) ?? .due,userID:store.user?.id ?? "",includeDone:layout.taskShowCompleted,dateFilter:layout.taskDateFilter)
+        if !store.snapshot.items.isEmpty { return Array(real.prefix(8)) }
         let now = Date(), calendar = Calendar.current
         let samples: [(String, Int?, String, [String])] = [("Pagar internet", -1, "pay", ["casa"]), ("Reunião com o contador", 0, "normal", []), ("Revisar orçamento do mês", 0, "normal", ["finanças"]), ("Comprar presente da Ana", 2, "normal", []), ("Receber aluguel da sala", 5, "receive", []), ("Organizar documentos", nil, "normal", [])]
         return samples.enumerated().map { entry -> NativeTask in
@@ -380,10 +384,29 @@ struct NativeSimTask: View {
                     if !current.fields.text("body").isEmpty { Text(current.fields.text("body")).font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(2) }
                     if let pending = current.pendingAmount { NativeTaskPendingAmount(amount: pending) }
                 }.listRowSeparator(.hidden).listRowBackground(Color.clear)
-                NativeTaskChecklist(checks: checks, money: legacyValues, receive: current.moneyMode == "receive", layout: layout.forTaskCategory(current.categoryID), collapsed: layout.forTaskCategory(current.categoryID).taskDetailExpandDone ? [] : ["done"]) { check, presentation in
-                    NativeInlineCheckRow(fields: .constant(check.fields), money: legacyValues, editable: true, presentation: presentation, attach: {}, remove: {})
+                NativeTaskChecklist(checks: checks, money: legacyValues, receive: current.moneyMode == "receive", layout: layout.compactTemplate(), collapsed: layout.compactTemplate().taskDetailExpandDone ? [] : ["done"]) { check, presentation in
+                    NativeInlineCheckRow(fields: .constant(check.fields), money: legacyValues, editable: true, presentation: presentation, hasNote:check.id == checks.first?.id, viewReceipts:check.id == checks.first?.id ? {} : nil, attach: {}, remove: {})
                 }
             }.listStyle(.plain).scrollContentBackground(.hidden).scrollDisabled(true)
         }.background(nativePaper)
+    }
+}
+
+struct NativeSimGeneral: View {
+    @ObservedObject var store: NativeStore
+    let layout: NativeLayoutPreferences
+    var body: some View {
+        VStack(alignment:.leading,spacing:layout.spacing) {
+            NativeSimStatusBar()
+            Label("SaldoLeve",systemImage:"line.3.horizontal").font(.system(size:(layout.compactHeader ? 20 : 25) * layout.textScale,weight:.bold)).padding(.horizontal,20)
+            Text("Ajustes gerais do aplicativo").font(.system(size:16 * layout.textScale)).foregroundStyle(.secondary).padding(.horizontal,20)
+            ForEach(["Despesas","Tarefas"],id:\.self) { name in
+                HStack { Image(systemName:name == "Despesas" ? "wallet.pass" : "checklist");Text(name);Spacer();Image(systemName:"chevron.right") }.font(.system(size:17 * layout.textScale)).padding(layout.spacing).background(nativePaper,in:RoundedRectangle(cornerRadius:14)).padding(.horizontal,20)
+            }
+            Text("Tela inicial: " + (layout.startPage == "tasks" ? "Tarefas" : "Despesas")).font(.system(size:14 * layout.textScale)).padding(.horizontal,20)
+            Text("R$ 900,00").font(.system(size:24 * layout.textScale,weight:.semibold,design:layout.roundedValues ? .rounded : .default)).padding(.horizontal,20)
+            Spacer()
+            if layout.showBottomBar { NativeSimTabBar(store:store,layout:layout,selected:layout.startPage) }
+        }.background(nativeCanvas)
     }
 }

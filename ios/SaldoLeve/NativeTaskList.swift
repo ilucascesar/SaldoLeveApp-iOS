@@ -170,10 +170,10 @@ struct NativeTaskList: View {
                                 .listRowBackground(nativePaper).listRowInsets(EdgeInsets(top: store.layout.rowPadding, leading: 10, bottom: store.layout.rowPadding, trailing: 12))
                                 .swipeActions(edge: .leading, allowsFullSwipe: false) { if task.isActive || task.isDone { Button { Task { await store.complete(task) } } label: { Label(task.isDone ? "Reabrir" : task.completionLabel, systemImage: "checkmark") }.tint(.green).disabled(!store.canEdit(task)) } }
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                    Button { privacyTask = task } label: { Label(store.taskProtection(task.id).isEmpty ? "Proteger" : "Proteção", systemImage: "lock.shield") }.tint(.indigo).disabled(!store.canWrite)
                                     // The trash is recoverable, so the swipe moves the task at once.
                                     if task.status == "trashed" { Button { Task { await store.changeStatus(task, to: "restore") } } label: { Label("Restaurar", systemImage: "arrow.uturn.backward") }.disabled(!store.canEdit(task)) }
-                                    else { Button(role: .destructive) { Task { await store.changeStatus(task, to: "trashed") } } label: { Label("Lixeira", systemImage: "trash") }.disabled(!store.canEdit(task)); if task.isActive { Button { store.openedTask = task } label: { Label("Data", systemImage: "calendar") }.tint(.orange).disabled(!store.canEdit(task)) } }
+                                    else { Button(role: .destructive) { Task { await store.changeStatus(task, to: "trashed") } } label: { Label("Lixeira", systemImage: "trash") }.disabled(!store.canEdit(task)) }
+                                    Button { privacyTask = task } label: { Label("Proteger", systemImage: "lock.shield") }.tint(.indigo).disabled(!store.canWrite)
                                 }
                                 .contextMenu { rowMenu(task) }
                         }.onMove { indices, destination in move(group, indices: indices, destination: destination) }.moveDisabled(sort != .manual || !store.canWrite)

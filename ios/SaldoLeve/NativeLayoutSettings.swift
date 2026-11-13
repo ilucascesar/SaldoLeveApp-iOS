@@ -12,7 +12,7 @@ struct NativeLayoutSettings: View {
     @State private var screen: NativeSimulatorScreen = .expenses
     @State private var fullSimulator = false
     private let embedded: Bool
-    init(store: NativeStore, embedded: Bool = false) { self.store = store; self.platform = store.platform; self.embedded = embedded }
+    init(store: NativeStore, embedded: Bool = false, initialScreen: NativeSimulatorScreen? = nil) { self.store = store; self.platform = store.platform; self.embedded = embedded; _screen = State(initialValue:initialScreen ?? .expenses) }
     @Environment(\.dismiss) private var dismiss
     @ViewBuilder var body: some View {
         if embedded { content } else { NavigationStack { content } }
@@ -20,15 +20,20 @@ struct NativeLayoutSettings: View {
     private var content: some View {
             Form {
                 Section {
-                    destination("Navegação e tela inicial", icon: "sidebar.left", page: "navigation")
-                    destination("Despesas: resumo e seções", icon: "rectangle.grid.2x2", page: "dashboard")
-                    destination("Cards e organização de despesas", icon: "wallet.pass", page: "expenses")
-                    destination("Agenda e captura rápida", icon: "checklist", page: "tasks")
-                    destination("Tarefa aberta e subtarefas", icon: "list.bullet.rectangle", page: "taskDetail")
-                    destination("Texto, espaço e aparência", icon: "textformat.size", page: "appearance")
-                    NavigationLink { NativeWidgetSettings(store: store) } label: { Label("Widgets da Tela de Início", systemImage: "square.grid.2x2") }.accessibilityIdentifier("layout-widgets")
-                } header: { Text("Personalizar") } footer: { Text("O simulador acima mostra cada alteração na hora, com seus dados. Toque em Salvar para aplicar na conta e nos outros dispositivos.") }
-                Section { Button("Restaurar layout padrão", role: .destructive) { reset = true } }
+                    switch screen {
+                    case .expenses:
+                        destination("Resumo e seções de Despesas",icon:"rectangle.grid.2x2",page:"dashboard")
+                        destination("Cards e organização de Despesas",icon:"wallet.pass",page:"expenses")
+                    case .agenda:
+                        destination("Lista, filtros e calendário",icon:"checklist",page:"tasks")
+                    case .task:
+                        destination("Personalizar modelo compacto",icon:"list.bullet.rectangle",page:"taskDetail")
+                    case .general:
+                        destination("Navegação do aplicativo",icon:"sidebar.left",page:"navigation")
+                        destination("Texto e espaço do aplicativo",icon:"textformat.size",page:"appearance")
+                    }
+                } header: { Text(screen.rawValue) } footer: { Text(screen == .task ? "Configure o modelo aqui e aplique dentro de cada tarefa, no menu de copiar e compartilhar a lista. Nome, data e anexo continuam visíveis." : "Somente os ajustes desta área aparecem aqui. O simulador acompanha a área escolhida. Salve para confirmar na conta.") }
+                Section { Button("Restaurar ajustes desta área",role:.destructive) { reset = true } }
             if let issue { Section { Text(issue).font(.footnote) } }
             }.disabled(!platform.canWrite || working).navigationTitle("Layout e personalização").navigationBarTitleDisplayMode(.inline)
                 .safeAreaInset(edge: .top, spacing: 0) { NativeSimulatorPanel(store: store, layout: layout, screen: $screen) { fullSimulator = true } }
@@ -40,7 +45,7 @@ struct NativeLayoutSettings: View {
                 .task { guard !initialized else { return }; await platform.refresh(); guard !Task.isCancelled else { return }; layout = store.layout; revision = platform.snapshot.revision; initialized = true }
                 .onChange(of: store.offline) { offline in guard offline, !working else { return }; layout = store.layout; revision = platform.snapshot.revision; issue = "Sem conexão. Alterações de layout não confirmadas foram descartadas." }
                 .onChange(of: platform.snapshot.revision) { next in guard !working, next != revision else { return }; layout = store.layout; revision = next; issue = "Layout atualizado com a versão do servidor." }
-                .confirmationDialog("Restaurar o layout padrão?", isPresented: $reset, titleVisibility: .visible) { Button("Restaurar layout") { layout = NativeLayoutPreferences() } } message: { Text("O simulador mostra o resultado; toque em Salvar para aplicar. Seus dados, pagamentos, tarefas e notificações permanecem salvos.") }
+                .confirmationDialog("Restaurar os ajustes desta área?", isPresented: $reset, titleVisibility: .visible) { Button("Restaurar layout") { layout.resetArea(screen.key) } } message: { Text("O simulador mostra o resultado. As outras áreas e as escolhas individuais das tarefas serão preservadas. Toque em Salvar para aplicar.") }
     }
     private func saveChanges() {
         guard platform.canWrite, !working else { return }
@@ -64,7 +69,7 @@ struct NativeLayoutDetail: View {
         case "dashboard", "expenses": return .expenses
         case "tasks": return .agenda
         case "taskDetail": return .task
-        case "navigation": return layout.startPage == "tasks" ? .agenda : .expenses
+        case "navigation", "appearance": return .general
         default: return nil
         }
     }
@@ -80,8 +85,8 @@ struct NativeLayoutDetail: View {
             }
             if let issue { Section { Text(issue).foregroundStyle(.red).font(.footnote) } }
         }.disabled(!canSave).navigationTitle(title).navigationBarTitleDisplayMode(.inline)
-            .safeAreaInset(edge: .top, spacing: 0) { NativeSimulatorPanel(store: store, layout: layout, screen: $screen) { fullSimulator = true } }
-            .sheet(isPresented: $fullSimulator) { NativeSimulatorFullScreen(store: store, draft: layout, screen: $screen) }
+            .safeAreaInset(edge: .top, spacing: 0) { NativeSimulatorPanel(store: store, layout: layout, screen: $screen, allowedScreens:[naturalScreen ?? screen]) { fullSimulator = true } }
+            .sheet(isPresented: $fullSimulator) { NativeSimulatorFullScreen(store: store, draft: layout, screen: $screen, allowedScreens:[naturalScreen ?? screen]) }
             .onAppear { if let naturalScreen { screen = naturalScreen } }
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Salvar", action: save).disabled(!canSave).accessibilityIdentifier("layout-save") } }
     }
@@ -90,8 +95,6 @@ struct NativeLayoutDetail: View {
             Picker("Abrir o app em", selection: $layout.startPage) { Text(store.platform.label("dashboard")).tag("dashboard"); Text(store.platform.label("tasks")).tag("tasks") }
             Toggle("Mostrar barra inferior", isOn: $layout.showBottomBar)
             Toggle("Cabeçalhos compactos", isOn: $layout.compactHeader)
-            Toggle("Busca nas telas financeiras", isOn: $layout.showSearch)
-            Toggle("Mostrar mês em aberto", isOn: $layout.showMonth)
             NavigationLink("Ordem das abas") { NativeLayoutOrder(store: store, layout: $layout, dashboard: false, canSave: canSave, save: save) }
             Text("As abas principais são \(store.platform.label("dashboard")) e \(store.platform.label("tasks")). Lançamentos e Compartilhados ficam no menu lateral; com a barra inferior oculta, use esse menu para navegar.").font(.footnote).foregroundStyle(.secondary)
         }
@@ -109,6 +112,10 @@ struct NativeLayoutDetail: View {
     }
     private var expenses: some View {
         Group {
+            Section("Cabeçalho de Despesas") {
+                Toggle("Busca em Despesas",isOn:$layout.showSearch)
+                Toggle("Mostrar mês em aberto",isOn:$layout.showMonth)
+            }
             Section("Formato dos cards") {
                 Picker("Estilo", selection: $layout.cardStyle) { Text("Cards completos").tag("cards"); Text("Cards compactos").tag("compact") }
                 Picker("Colunas", selection: $layout.cardColumns) { ForEach(1...4, id: \.self) { Text("\($0) \($0 == 1 ? "coluna" : "colunas")").tag($0) } }
@@ -154,39 +161,14 @@ struct NativeLayoutDetail: View {
     private var taskDetail: some View {
         Group {
             Section {
-                ForEach(NativeLayoutPreferences.taskDetailStyles, id: \.self) { style in
-                    Button { withAnimation(.easeInOut(duration: 0.2)) { layout.applyTaskDetailPreset(style) } } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: NativeTaskDetailLayout.icons[style] ?? "list.bullet").font(.system(size: 18)).foregroundStyle(nativeBlue).frame(width: 32, height: 32).background(nativeBlue.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
-                            VStack(alignment: .leading, spacing: 2) { Text(NativeTaskDetailLayout.names[style] ?? style).foregroundStyle(.primary); Text(NativeTaskDetailLayout.summaries[style] ?? "").font(.caption).foregroundStyle(.secondary) }
-                            Spacer(minLength: 4)
-                            if layout.taskDetailLayout == style { Image(systemName: "checkmark.circle.fill").foregroundStyle(nativeBlue) }
-                        }
-                    }.accessibilityIdentifier("task-detail-style-" + style).accessibilityAddTraits(layout.taskDetailLayout == style ? .isSelected : [])
-                }
-            } header: { Text("Estilo") } footer: { Text("Escolher um estilo aplica as opções recomendadas. Depois, personalize cada detalhe abaixo.") }
-            Section {
-                Picker("Agrupar subtarefas", selection: $layout.taskDetailGrouping) { ForEach(NativeLayoutPreferences.taskDetailGroupings, id: \.self) { Text(NativeTaskDetailLayout.groupingNames[$0] ?? $0).tag($0) } }
-                Picker("Densidade", selection: $layout.taskDetailDensity) { Text("Normal").tag("regular"); Text("Compacta").tag("compact") }
-                Toggle("Mostrar concluídas abertas", isOn: $layout.taskDetailExpandDone)
-            } header: { Text("Organização") } footer: { Text("Grupos podem ser recolhidos tocando no título.") }
-            Section {
-                Toggle("Situação colorida (Atrasada, Hoje, Em 3 dias)", isOn: $layout.taskDetailPills)
-                Toggle("Data em cada subtarefa", isOn: $layout.taskDetailMetadata)
-                Toggle("Valor em cada subtarefa", isOn: $layout.taskDetailAmounts)
-                Toggle("Numerar subtarefas", isOn: $layout.taskDetailNumbers)
-                Toggle("Progresso no título do grupo", isOn: $layout.taskDetailProgress)
-            } header: { Text("Detalhes de cada linha") } footer: { Text("O progresso aparece discreto ao lado do título, sem empurrar as subtarefas para baixo. Sem a data na linha, use o menu ⋯ para alterá-la.") }
-            Section("Estilo por categoria") {
-                ForEach(store.snapshot.lists.filter { !$0.archived }) { category in
-                    Picker(category.name, selection: styleBinding(category.id, expense: false)) {
-                        Text("Usar padrão").tag("")
-                        ForEach(NativeLayoutPreferences.taskDetailStyles, id: \.self) { style in
-                            Text(NativeTaskDetailLayout.names[style] ?? style).tag(style)
-                        }
-                    }
-                }
-            }
+                Text("Nome, data e indicador de anexo ficam sempre visíveis no compacto.").font(.footnote).foregroundStyle(.secondary)
+                Picker("Espaçamento",selection:$layout.taskCompactSpacing) { Text("Enxuto").tag("tight");Text("Confortável").tag("comfortable") }
+                LabeledContent("Tamanho do nome",value:"\(Int(layout.taskCompactTextScale * 100))%")
+                Slider(value:$layout.taskCompactTextScale,in:0.85...1.3,step:0.05).accessibilityLabel("Tamanho do nome no compacto")
+                Toggle("Numerar subtarefas",isOn:$layout.taskCompactNumbers)
+                Toggle("Mostrar valor separado",isOn:$layout.taskCompactAmounts)
+                Toggle("Progresso no título do grupo",isOn:$layout.taskCompactProgress)
+            } header: { Text("Modelo compacto reutilizável") } footer: { Text("Configurar o modelo não muda todas as tarefas. Para aplicá-lo, abra uma tarefa e use Layout das subtarefas no menu de copiar e compartilhar. O menu de cada subtarefa permite uma escolha individual.") }
         }
     }
     private func styleBinding(_ key: String, expense: Bool) -> Binding<String> {

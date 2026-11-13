@@ -109,15 +109,14 @@ struct NativeReminderOptions: View {
             Form {
                 Section {
                     Toggle("Avisar pelas datas pendentes", isOn: flag("dateRemindersEnabled", fallback: true))
-                    Toggle("Repetição mensal", isOn: Binding(get: { fields["repeat"]?.object.text("frequency") == "monthly" }, set: { fields["repeat"] = .object(["frequency": .string($0 ? "monthly" : "none"), "interval": .number(1)]) }))
                     Toggle("Antecipar fim de semana para sexta", isOn: flag("weekendAdvance"))
-                } footer: { Text("Cada pendência avisa 2 dias antes, 1 dia antes e após o vencimento. Ao concluir todas, a repetição mensal guarda o histórico e abre o próximo mês.") }
+                } footer: { Text("Cada pendência avisa 2 dias antes, 1 dia antes e após o vencimento. A repetição é configurada no botão Repetir da tarefa.") }
                 Section("Avisos após o vencimento") {
                     Picker("Reavisar", selection: Binding(get: { max(60, fields.integer("overdueMinutes")) }, set: { fields["overdueMinutes"] = .number(Double($0)) })) {
                         ForEach([60, 120, 240, 360, 480], id: \.self) { Text("A cada \($0 / 60) hora(s)").tag($0) }
                     }.pickerStyle(.inline).labelsHidden()
                 }
-            }.navigationTitle("Avisos e repetição").navigationBarTitleDisplayMode(.inline)
+            }.navigationTitle("Avisos").navigationBarTitleDisplayMode(.inline)
                 .toolbar { Button("Pronto") { dismiss() }.bold() }
         }.presentationDetents([.large])
     }
@@ -208,6 +207,7 @@ struct NativeInlineCheckRow: View {
     let editable: Bool
     var saving = false
     var monthly = false
+    var recurring = false
     var canTransfer = false
     var presentation = NativeCheckPresentation()
     var payment: () -> Void = {}
@@ -216,6 +216,9 @@ struct NativeInlineCheckRow: View {
     var transfer: () -> Void = {}
     var submit: () -> Void = {}
     var reopen: (() -> Void)? = nil
+    var note: () -> Void = {}
+    var hasNote = false
+    var appearance: () -> Void = {}
     var viewReceipts: (() -> Void)? = nil
     var receiptShortcut = false
     var attach: () -> Void
@@ -229,6 +232,7 @@ struct NativeInlineCheckRow: View {
     var body: some View {
         Group {
             switch p.style {
+            case "compact": compactRow
             case "cards": cardRow
             case "timeline": timelineRow
             case "ledger": ledgerRow
@@ -241,6 +245,25 @@ struct NativeInlineCheckRow: View {
     }
 
     // MARK: Styles
+    private var compactRow: some View {
+        HStack(alignment:.center,spacing:5) {
+            check(size:18,height:40)
+            numberLabel
+            title(size:14,weight:.regular,minHeight:40).layoutPriority(1)
+            if manualPayment && p.amounts { amountButton(size:11,weight:.medium).frame(maxWidth:72) }
+            Button { date = true } label: {
+                VStack(spacing:1) {
+                    Text(dueDate.map { $0.formatted(.dateTime.day(.twoDigits).month(.twoDigits).locale(Locale(identifier:"pt_BR"))) } ?? "Data")
+                    if let dueDate, Calendar.current.component(.hour,from:dueDate) + Calendar.current.component(.minute,from:dueDate) > 0 {
+                        Text(dueDate.formatted(.dateTime.hour().minute().locale(Locale(identifier:"pt_BR")))).font(.system(size:10))
+                    }
+                }.font(.system(size:11)).foregroundStyle(.secondary).frame(width:46,height:40)
+            }.disabled(!editable || saving).accessibilityLabel("Data e horário da subtarefa")
+            if let viewReceipts { Button(action:viewReceipts) { Image(systemName:"paperclip").font(.system(size:14)).foregroundStyle(nativeBlue).frame(width:28,height:40) }.accessibilityLabel("Possui anexo. Visualizar comprovante") }
+            if hasNote { Button(action:note) { Image(systemName:"text.bubble").font(.system(size:12)).foregroundStyle(.secondary).frame(width:26,height:40) }.accessibilityLabel("Ver observação") }
+            menu
+        }.padding(.vertical,p.compact ? 0 : 4)
+    }
     private var elegantRow: some View {
         HStack(alignment: .top, spacing: 10) {
             check(size: p.compact ? 19 : 22, height: p.compact ? 34 : 40)
@@ -351,7 +374,7 @@ struct NativeInlineCheckRow: View {
     private func title(size: CGFloat, weight: Font.Weight, minHeight: CGFloat) -> some View {
         TextField("Nome da subtarefa", text: Binding(get: { fields.text("text") }, set: { fields["text"] = .string(String($0.prefix(300))) }))
             .submitLabel(.next).onSubmit(submit)
-            .font(.system(size: size * accessibleScale, weight: weight)).strikethrough(done, color: .secondary)
+            .font(.system(size: size * accessibleScale * p.textScale, weight: weight)).strikethrough(done, color: .secondary)
             .foregroundStyle(done ? Color.secondary : Color.primary).lineLimit(1...8)
             .frame(minHeight: minHeight).disabled(!editable)
     }
@@ -381,6 +404,7 @@ struct NativeInlineCheckRow: View {
     }
     private var rowActions: some View {
         HStack(spacing: 2) {
+            if hasNote { Button(action:note) { Image(systemName:"text.bubble").font(.system(size:13)).foregroundStyle(.secondary).frame(width:30,height:44) }.accessibilityLabel("Ver observação") }
             if receiptShortcut {
                 Button(action: attach) {
                     Image(systemName: "paperclip").font(.system(size: 17, weight: .medium))
@@ -393,6 +417,8 @@ struct NativeInlineCheckRow: View {
     }
     private var menu: some View {
         Menu {
+            Button(action:note) { Label(hasNote ? "Ver observação" : "Adicionar observação",systemImage:"text.bubble") }
+            Button(action:appearance) { Label("Layout desta subtarefa",systemImage:"slider.horizontal.3") }
             if let viewReceipts { Button(action: viewReceipts) { Label("Visualizar comprovante", systemImage: "doc.text.magnifyingglass") } }
             if editable && !saving {
             Button { date = true } label: { Label("Data e horário", systemImage: "calendar") }
@@ -403,7 +429,7 @@ struct NativeInlineCheckRow: View {
             } else if done && fields["paidAmountCents"]?.number != nil {
                 Button("Valores original e pago") { values() }
             }
-            Toggle("Repetir no próximo ciclo mensal", isOn: Binding(get: { fields["repeatMonthly"]?.bool ?? true }, set: { fields["repeatMonthly"] = .bool($0) }))
+            if recurring { Toggle("Repetir no próximo ciclo", isOn: Binding(get: { fields["repeatMonthly"]?.bool ?? true }, set: { fields["repeatMonthly"] = .bool($0) })) }
             if monthly && !done {
                 if NativeDate.parse(fields.text("pausedUntil")).map({ $0 > Date() }) == true { Button("Retomar cobrança") { pause(0, true) } }
                 else { Menu("Pausar cobrança") { ForEach([1, 2, 3, 6, 12], id: \.self) { months in Button("\(months) mês(es)") { pause(months, false) } } } }

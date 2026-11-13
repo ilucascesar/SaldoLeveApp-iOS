@@ -122,6 +122,21 @@ final class NativeStore: ObservableObject {
         return !revision.isEmpty && unlockedTasks[id] != revision
     }
     func taskByID(_ id: String) -> NativeTask? { confirmedSnapshot.items.first { $0.id == id } ?? snapshot.items.first { $0.id == id } }
+    func subtaskNote(_ taskID: String,_ checkID: String) -> JSONObject {
+        let check = taskByID(taskID)?.checks.first { $0.id == checkID }
+        return ["text":.string(check?.fields.text("note") ?? ""),"revision":.string(check?.fields.text("noteRevision") ?? "")]
+    }
+    func saveSubtaskNote(_ taskID: String,checkID: String,text: String,revision: String) async throws {
+        guard canWrite, let userID = user?.id, !taskLocked(taskID) else { throw NativeFailure("Conecte-se e desbloqueie a tarefa antes de salvar.") }
+        working = true; defer { working = false }
+        let result = try await api.post(action:"org_subtask_note",body:["itemId":.string(taskID),"checkId":.string(checkID),"text":.string(text),"revision":.string(revision)])
+        guard user?.id == userID else { throw NativeFailure("A conta mudou durante o salvamento.") }
+        protectionUpdate = UUID()
+        var source = confirmedSnapshot
+        let canonical = NativeTask(result.record("item"))
+        source.items = source.items.map { $0.id == taskID && $0.revision <= canonical.revision ? canonical : $0 }
+        publishTasks(source); persist(); syncedAt = Date()
+    }
     func publishTasks(_ source: NativeSnapshot) {
         confirmedSnapshot = source
         let visible = projectTasks(source)

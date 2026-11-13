@@ -1,5 +1,15 @@
 import Foundation
 
+enum NativeRepeatLabel {
+    static func title(_ repeatValue: JSONObject) -> String {
+        let frequency = repeatValue.text("frequency"), interval = max(1,repeatValue.integer("interval"))
+        guard !frequency.isEmpty, frequency != "none" else { return "Repetir" }
+        let units = ["daily":("dia","dias"),"weekly":("semana","semanas"),"monthly":("mês","meses"),"yearly":("ano","anos")]
+        guard let unit = units[frequency] else { return "Repetir" }
+        return interval == 1 ? "A cada " + unit.0 : "A cada \(interval) " + unit.1
+    }
+}
+
 enum NativeRequestError {
     static func isCancellation(_ error: Error) -> Bool {
         error is CancellationError || (error as? URLError)?.code == .cancelled

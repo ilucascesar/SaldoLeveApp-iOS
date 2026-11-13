@@ -38,6 +38,10 @@ struct NativeTaskEditor: View {
     @State private var removingCheck: String?
     @State private var pauseMenu = false
     @State private var remindersOptions = false
+    @State private var repetitionOptions = false
+    @State private var noteCheck: NativeRecord?
+    @State private var appearanceOptions = false
+    @State private var appearanceCheck: NativeRecord?
     @State private var locationOptions = false
     private var locationLabel: String {
         guard let reminder = NativeLocationReminder(task.fields) else { return "Local" }
@@ -69,9 +73,9 @@ struct NativeTaskEditor: View {
         _task = State(initialValue: current)
         _baseline = State(initialValue: current)
         _serverReady = State(initialValue: !store.editorSyncEnabled)
-        _collapsedGroups = State(initialValue: store.layout.forTaskCategory(current.categoryID).taskDetailExpandDone ? [] : ["done"])
+        _collapsedGroups = State(initialValue: store.layout.forTask(current).taskDetailExpandDone ? [] : ["done"])
     }
-    private var detailLayout: NativeLayoutPreferences { store.layout.forTaskCategory(task.categoryID) }
+    private var detailLayout: NativeLayoutPreferences { store.layout.forTask(task) }
     private var taskLocked: Bool { store.taskLocked(task.id) }
     private var editable: Bool { !taskLocked && serverReady && store.networkAvailable && !store.offline && !store.needsSync && !reloading && store.snapshot.lists.first(where: { $0.id == task.categoryID })?.canEdit == true && task.status != "trashed" }
     private var repeating: Binding<Bool> {
@@ -103,18 +107,12 @@ struct NativeTaskEditor: View {
                 ToolbarItemGroup(placement: .bottomBar) {
                     Button { openReceipts() } label: { Image(systemName: "paperclip").frame(width: 38, height: 40) }.disabled(task.id.isEmpty || saving || loading).accessibilityLabel("Anexos e comprovantes")
                     Button { history = true } label: { Image(systemName: "clock.arrow.circlepath").frame(width: 38, height: 40) }.disabled(task.id.isEmpty || saving || loading).accessibilityLabel("Histórico")
-                    Button { Task {
-                        addCheck()
-                        autosave?.cancel()
-                        guard newCheck.isEmpty, await commit(closing: false) else { return }
-                        privacy = true
-                    } } label: { Image(systemName: "lock.shield").frame(width: 38, height: 40) }
-                        .accessibilityLabel("Proteção da tarefa").disabled(task.id.isEmpty || saving || loading || !editable)
                     Menu {
+                        Button { Task { if editable { addCheck(); autosave?.cancel(); guard newCheck.isEmpty, await commit(closing:false) else { return } }; appearanceOptions = true } } label: { Label("Layout das subtarefas",systemImage:"slider.horizontal.3") }
                         Button { exportChecklist(share: false) } label: { Label("Copiar lista de subtarefas", systemImage: "doc.on.doc") }
                         Button { exportChecklist(share: true) } label: { Label("Compartilhar lista de subtarefas", systemImage: "square.and.arrow.up") }
                     } label: { Image(systemName: "ellipsis.circle").frame(width: 38, height: 40) }
-                        .accessibilityLabel("Exportar lista de subtarefas").disabled(task.checks.isEmpty && newCheck.isEmpty || loading || saving)
+                        .accessibilityLabel("Opções da lista de subtarefas").disabled(loading || saving)
                     Spacer()
                     Text(!serverReady || store.offline ? "Somente consulta" : saving ? "Salvando no servidor…" : task == baseline ? "" : "Ainda não salvo").font(.system(size: 11)).foregroundStyle(.secondary)
                 }
@@ -132,6 +130,10 @@ struct NativeTaskEditor: View {
                 Button("OK") { receiptIssue = nil }
             } message: { Text(receiptIssue ?? "") }
             .sheet(isPresented: $remindersOptions) { NativeReminderOptions(fields: $task.fields) }
+            .sheet(isPresented: $repetitionOptions) { NativeTaskRepetition(fields: $task.fields) }
+            .sheet(item:$noteCheck) { check in NativeSubtaskNoteEditor(store:store,taskID:task.id,checkID:check.id,title:check.fields.text("text")) }
+            .sheet(isPresented:$appearanceOptions) { NativeTaskAppearance(store:store,taskID:task.id) }
+            .sheet(item:$appearanceCheck) { check in NativeTaskAppearance(store:store,taskID:task.id,checkID:check.id) }
             .sheet(isPresented: $locationOptions) { NativeTaskLocationSheet(fields: $task.fields, store: store) }
             .sheet(isPresented: $reordering) { reorderSheet }
             .sheet(isPresented: Binding(get: { movingCheck != nil }, set: { if !$0 { movingCheck = nil } })) { transferSheet }
@@ -184,7 +186,11 @@ struct NativeTaskEditor: View {
                                 ForEach(store.editableCategories.filter { entry in entry.fields.text("ownerId") == store.user?.id && store.snapshot.lists.first(where: { $0.id == task.categoryID })?.fields.text("ownerId") == store.user?.id }) { entry in Button(entry.name) { move(to: entry.id) } }
                             }
                         } label: { NativeChip(title: store.category(task), icon: "circle.fill", color: Color(nativeHex: store.snapshot.lists.first(where: { $0.id == task.categoryID })?.fields.text("color") ?? "#1f6feb")) }.disabled(!editable || saving)
-                        Button { remindersOptions = true } label: { NativeChip(title: reminderLabel, icon: "alarm", active: task.fields["repeat"]?.object.text("frequency") == "monthly") }.disabled(!editable || saving)
+                        Button { remindersOptions = true } label: { NativeChip(title: reminderLabel, icon: "alarm") }.disabled(!editable || saving)
+                        Button { repetitionOptions = true } label: { NativeChip(title:NativeRepeatLabel.title(task.fields.record("repeat")),icon:task.fields.record("repeat").text("frequency") == "none" ? "repeat" : "repeat.circle.fill",active:task.fields.record("repeat").text("frequency") != "none") }.disabled(!editable || saving).accessibilityIdentifier("task-repeat")
+                        if !task.id.isEmpty {
+                            Button { Task { if editable { addCheck();autosave?.cancel();guard newCheck.isEmpty,await commit(closing:false) else { return } };privacy = true } } label: { NativeChip(title:"Proteção",icon:"lock.shield",active:!store.taskProtection(task.id).isEmpty) }.disabled(saving || loading || !store.canWrite).accessibilityLabel("Proteção da tarefa")
+                        }
                         Button { locationOptions = true } label: { NativeChip(title: locationLabel, icon: "location", active: NativeLocationReminder(task.fields) != nil) }.disabled(!editable || saving).accessibilityIdentifier("task-location")
                     }.padding(.vertical, 3)
                 }
@@ -336,14 +342,14 @@ struct NativeTaskEditor: View {
         }
     }
     private var reminderLabel: String {
-        (task.fields["dateRemindersEnabled"] == .bool(false) ? "Avisos desativados" : "Avisos: \(max(60, task.fields.integer("overdueMinutes")) / 60) h") + (task.fields["repeat"]?.object.text("frequency") == "monthly" ? " · Mensal" : "")
+        task.fields["dateRemindersEnabled"] == .bool(false) ? "Avisos desativados" : "Avisos: \(max(60, task.fields.integer("overdueMinutes")) / 60) h"
     }
     // Style, grouping and details come from Configurações → Layout → Tarefa aberta.
     @ViewBuilder private var checklistSection: some View {
         let checks = task.checks
         let legacyValues = checks.contains(where: task.usesManualPayment)
         let receipts = Dictionary(grouping: attachments.filter { nativeCurrentReceipt($0, task: task) }) { $0.fields.text("checkId") }
-        NativeTaskChecklist(checks: checks, money: legacyValues, receive: task.moneyMode == "receive", layout: detailLayout, collapsed: collapsedGroups, toggle: { id in
+        NativeTaskChecklist(checks: checks, money: legacyValues, receive: task.moneyMode == "receive", layout: detailLayout, taskID:task.id, collapsed: collapsedGroups, toggle: { id in
             withAnimation(.easeInOut(duration: 0.2)) { if collapsedGroups.contains(id) { collapsedGroups.remove(id) } else { collapsedGroups.insert(id) } }
         }) { check, presentation in checkRow(check, presentation: presentation, receipts: receipts[check.id] ?? [], legacyValues: legacyValues) }
         if editable {
@@ -368,15 +374,20 @@ struct NativeTaskEditor: View {
         let recorded = (check.amount != nil || task.usesManualPayment(check)) && baseline.checks.contains { $0.id == id && $0.done }
         return VStack(alignment: .leading, spacing: 3) {
             NativeInlineCheckRow(fields: checkBinding(id), money: legacyValues, editable: canAttach, saving: saving,
-                monthly: task.fields["repeat"]?.object.text("frequency") == "monthly" && !task.id.isEmpty, canTransfer: !task.id.isEmpty,
+                monthly: task.fields["repeat"]?.object.text("frequency") == "monthly" && !task.id.isEmpty, recurring:task.fields.record("repeat").text("frequency") != "none", canTransfer: !task.id.isEmpty,
                 presentation: presentation, payment: { openPayment(id) },
                 values: { autosave?.cancel(); Task { if await commit(closing: false) { valuesRecord = NativeRecord(fields: ["id": .string(id)]) } } },
                 pause: { months, resume in pause(months: months, resume: resume, checkID: id) }, transfer: { movingCheck = id },
-                submit: registerCheck, reopen: recorded ? { reopenCheck(id) } : nil, viewReceipts: receipts.isEmpty ? nil : {
+                submit: registerCheck, reopen: recorded ? { reopenCheck(id) } : nil, note: {
+                    if !editable { noteCheck = NativeRecord(fields:check.fields); return }
+                    Task { addCheck(); autosave?.cancel(); guard newCheck.isEmpty, await commit(closing:false) else { return }; noteCheck = NativeRecord(fields:check.fields) }
+                }, hasNote:!store.subtaskNote(task.id,id).text("text").isEmpty, appearance:{
+                    Task { if editable { addCheck(); autosave?.cancel(); guard newCheck.isEmpty,await commit(closing:false) else { return } }; appearanceCheck = NativeRecord(fields:check.fields) }
+                }, viewReceipts: receipts.isEmpty ? nil : {
                 if receipts.count == 1, let file = receipts.first { previewReceipt(file) }
                 else { receiptTarget = NativeReceiptTarget(task: task, checkID: id, viewOnly: true) }
             }, receiptShortcut: canAttach, attach: { openReceipts(id) }, remove: { removingCheck = id })
-            if !receipts.isEmpty || presentation.style == "ledger" && canAttach {
+            if presentation.style != "compact" && (!receipts.isEmpty || presentation.style == "ledger" && canAttach) {
                 HStack(spacing: 12) {
                     if let file = receipts.last {
                         Button { previewReceipt(file) } label: {

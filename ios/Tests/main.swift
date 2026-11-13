@@ -449,3 +449,20 @@ let reminderExamples = [
 ]
 check(NativeReminderPlan.select(reminderExamples, limit: 2).map(\.id) == ["a1", "b1"], "Repeated alarms cannot occupy the entire queue ahead of another pending item")
 print("2.10.0: protected task titles and fair reminder scheduling passed.")
+
+var customLayout = NativeLayoutPreferences()
+customLayout.taskItemLayouts = ["9":"compact"]
+customLayout.taskCheckLayouts = ["9:child":"regular"]
+customLayout.taskCompactTextScale = 1.15;customLayout.taskCompactNumbers = true
+let compactTask = customLayout.forTask(privateTask)
+check(compactTask.taskDetailLayout == "compact" && compactTask.taskDetailMetadata && compactTask.taskDetailNumbers && compactTask.textScale == 1.15,"A task uses the configured compact template and always shows the date")
+check(compactTask.forCheck(privateTask.checks[0],taskID:"9").taskDetailLayout == "elegant","An individual subtask can override the compact task")
+var unchanged = privateTask;unchanged.fields["id"] = .string("10")
+check(customLayout.forTask(unchanged).taskDetailLayout == "elegant","Choosing compact does not affect other tasks")
+customLayout.cardColumns = 4;customLayout.taskShowTags = false
+customLayout.resetArea("expenses")
+check(customLayout.cardColumns == 3 && !customLayout.taskShowTags && customLayout.taskItemLayouts["9"] == "compact","Restoring Expenses preserves Tasks and individual choices")
+customLayout.resetArea("task")
+check(customLayout.taskCompactTextScale == 1 && customLayout.taskItemLayouts["9"] == "compact","Restoring the compact template preserves where it is applied")
+check(NativeRepeatLabel.title(["frequency":.string("monthly"),"interval":.number(6)]) == "A cada 6 meses" && NativeRepeatLabel.title(["frequency":.string("monthly"),"interval":.number(12)]) == "A cada 12 meses","Repeat labels preserve six- and twelve-month intervals")
+print("2.12.0: reusable compact layouts, individual overrides, scoped reset and recurrence labels passed.")
