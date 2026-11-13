@@ -2,13 +2,15 @@
 
 Cliente SwiftUI do SaldoLeve com extensões WidgetKit e Compartilhar.
 
-## Versão 2.10.0
+## Versão 2.11.0
 
-Tarefas protegidas permanecem identificáveis em Tudo. A abertura pede Face ID ou a senha escrita da categoria. O cliente oculta descrição, subtarefas e valores até o desbloqueio. A recuperação da senha da categoria exige a senha escrita da conta.
+Tarefas protegidas permanecem identificáveis em Tudo. A abertura pede Face ID ou a senha escrita de cada tarefa. O cliente oculta descrição, subtarefas e valores até o desbloqueio. Deslize a tarefa e use Proteger ou toque no cadeado dentro dela. A recuperação exige a senha escrita da conta e define uma nova senha sem apagar conteúdo.
+
+Novidades mostra as melhorias desta versão do iPhone; Não mostrar novamente vale para a versão atual e pode ser revisto em Configurações.
 
 O editor tenta concluir o envio ao alternar de aplicativo. Notificações abrem a subtarefa correspondente. A atualização oportunista em segundo plano recalcula os avisos, respeitando o agendamento do iOS. O widget solicita atualização ao alterar a proteção e apresenta indisponibilidade quando a conexão falha.
 
-As gravações financeiras conferem a versão do registro. Os layouts e a exportação das tarefas mantêm compatibilidade com o servidor 2.10.0. O app usa a instalação em https://tools.ilucas.com.br/SaldoLeve/.
+As gravações financeiras conferem a versão do registro. Os layouts e a exportação das tarefas mantêm compatibilidade com o servidor 2.11.0. O app usa a instalação em https://tools.ilucas.com.br/SaldoLeve/.
 
 ## Compilação
 

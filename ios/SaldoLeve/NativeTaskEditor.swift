@@ -27,6 +27,7 @@ struct NativeTaskEditor: View {
     @State private var receiptPreview: URL?
     @State private var receiptIssue: String?
     @State private var loadingReceipt = false
+    @State private var privacy = false
     @State private var history = false
     @State private var suggestions = false
     @State private var valuesRecord: NativeRecord?
@@ -71,22 +72,26 @@ struct NativeTaskEditor: View {
         _collapsedGroups = State(initialValue: store.layout.forTaskCategory(current.categoryID).taskDetailExpandDone ? [] : ["done"])
     }
     private var detailLayout: NativeLayoutPreferences { store.layout.forTaskCategory(task.categoryID) }
-    private var categoryLocked: Bool { store.categoryLocked(store.taskByID(task.id)?.categoryID ?? task.categoryID) }
-    private var editable: Bool { !categoryLocked && serverReady && store.networkAvailable && !store.offline && !store.needsSync && !reloading && store.snapshot.lists.first(where: { $0.id == task.categoryID })?.canEdit == true && task.status != "trashed" }
+    private var taskLocked: Bool { store.taskLocked(task.id) }
+    private var editable: Bool { !taskLocked && serverReady && store.networkAvailable && !store.offline && !store.needsSync && !reloading && store.snapshot.lists.first(where: { $0.id == task.categoryID })?.canEdit == true && task.status != "trashed" }
     private var repeating: Binding<Bool> {
         Binding(get: { task.fields["repeat"]?.object.text("frequency") == "monthly" }, set: { value in
             task.fields["repeat"] = .object(["frequency": .string(value ? "monthly" : "none"), "interval": .number(1)])
         })
     }
-    @ViewBuilder var body: some View {
-        if categoryLocked {
+    var body: some View {
+        Group {
+        if taskLocked {
             NavigationStack {
-                NativeCategoryGate(store: store, categoryID: store.taskByID(task.id)?.categoryID ?? task.categoryID)
+                NativeTaskGate(store: store, taskID: task.id)
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() } } }
             }
         } else {
             editor
         }
+        }
+        .sheet(isPresented: $privacy) { NavigationStack { NativeTaskPrivacyEditor(store: store, task: task) } }
+        .onDisappear { store.relockTasks(task.id) }
     }
     private var editor: some View {
         NavigationStack {
@@ -98,6 +103,13 @@ struct NativeTaskEditor: View {
                 ToolbarItemGroup(placement: .bottomBar) {
                     Button { openReceipts() } label: { Image(systemName: "paperclip").frame(width: 38, height: 40) }.disabled(task.id.isEmpty || saving || loading).accessibilityLabel("Anexos e comprovantes")
                     Button { history = true } label: { Image(systemName: "clock.arrow.circlepath").frame(width: 38, height: 40) }.disabled(task.id.isEmpty || saving || loading).accessibilityLabel("Histórico")
+                    Button { Task {
+                        addCheck()
+                        autosave?.cancel()
+                        guard newCheck.isEmpty, await commit(closing: false) else { return }
+                        privacy = true
+                    } } label: { Image(systemName: "lock.shield").frame(width: 38, height: 40) }
+                        .accessibilityLabel("Proteção da tarefa").disabled(task.id.isEmpty || saving || loading || !editable)
                     Menu {
                         Button { exportChecklist(share: false) } label: { Label("Copiar lista de subtarefas", systemImage: "doc.on.doc") }
                         Button { exportChecklist(share: true) } label: { Label("Compartilhar lista de subtarefas", systemImage: "square.and.arrow.up") }
@@ -442,7 +454,7 @@ struct NativeTaskEditor: View {
     }
     private func exportChecklist(share: Bool) {
         Task {
-            guard !categoryLocked else { return }
+            guard !taskLocked else { return }
             if editable && (!newCheck.isEmpty || task != baseline) {
                 addCheck()
                 autosave?.cancel()

@@ -9,8 +9,8 @@ final class NativeStore: ObservableObject {
     @Published var user: NativeIdentity?
     @Published var snapshot = NativeSnapshot()
     private var confirmedSnapshot = NativeSnapshot()
-    private var unlockedCategories: [String: String] = [:]
-    private var categoryAccessGeneration = UUID()
+    private var unlockedTasks: [String: String] = [:]
+    private var taskAccessGeneration = UUID()
     private var protectionUpdate = UUID()
     @Published private(set) var taskIndex = NativeTaskIndex()
     @Published private(set) var networkAvailable = true
@@ -79,17 +79,33 @@ final class NativeStore: ObservableObject {
         if isPreview, let task = snapshot.items.first(where: { $0.id == id }) { return ["item": .object(task.fields)] }
         #endif
         let details = try await api.get(JSONObject.self, action: "org_item", query: ["id": id])
-        guard !categoryLocked(details.record("item").text("listId")) else { throw NativeFailure("Desbloqueie a categoria para abrir a tarefa.") }
+        guard !taskLocked(id) else { throw NativeFailure("Desbloqueie esta tarefa para ver o conteúdo.") }
         return details
     }
 
-    func categoryProtection(_ id: String) -> JSONObject { snapshot.preferences.record("categoryProtection").record(id) }
+    func taskProtections(_ source: NativeSnapshot) -> JSONObject {
+        var protections = source.preferences.record("taskProtection")
+        // Keep an older confirmed cache private before the first server migration.
+        let legacy = source.preferences.record("categoryProtection")
+        guard !legacy.isEmpty else { return protections }
+        for task in source.items where protections[task.id] == nil {
+            if let inherited = legacy[task.categoryID] { protections[task.id] = inherited }
+        }
+        return protections
+    }
+    func taskProtection(_ id: String) -> JSONObject {
+        let preferences = confirmedSnapshot.preferences
+        if let entry = preferences.record("taskProtection")[id] { return entry.object }
+        let legacy = preferences.record("categoryProtection")
+        guard !legacy.isEmpty, let task = taskByID(id) else { return [:] }
+        return legacy.record(task.categoryID)
+    }
     var reminderSnapshot: NativeSnapshot {
         var source = confirmedSnapshot
-        let protected = source.preferences.record("categoryProtection")
+        let protected = taskProtections(source)
         guard !protected.isEmpty else { return snapshot }
         source.items = source.items.map { task in
-            guard protected[task.categoryID] != nil else { return task }
+            guard protected[task.id] != nil else { return task }
             var generic = task
             generic.fields["title"] = .string("Tarefa protegida")
             generic.fields["checklist"] = .array(task.checks.map { check in
@@ -101,9 +117,9 @@ final class NativeStore: ObservableObject {
         }
         return source
     }
-    func categoryLocked(_ id: String) -> Bool {
-        let revision = categoryProtection(id).text("revision")
-        return !revision.isEmpty && unlockedCategories[id] != revision
+    func taskLocked(_ id: String) -> Bool {
+        let revision = taskProtection(id).text("revision")
+        return !revision.isEmpty && unlockedTasks[id] != revision
     }
     func taskByID(_ id: String) -> NativeTask? { confirmedSnapshot.items.first { $0.id == id } ?? snapshot.items.first { $0.id == id } }
     func publishTasks(_ source: NativeSnapshot) {
@@ -113,89 +129,92 @@ final class NativeStore: ObservableObject {
         snapshot = visible
     }
     private func projectTasks(_ source: NativeSnapshot) -> NativeSnapshot {
-        let protections = source.preferences.record("categoryProtection")
-        unlockedCategories = unlockedCategories.filter { protections.record($0.key).text("revision") == $0.value }
-        let hidden = Set(protections.keys.filter { unlockedCategories[$0] != protections.record($0).text("revision") })
+        let protections = taskProtections(source)
+        unlockedTasks = unlockedTasks.filter { protections.record($0.key).text("revision") == $0.value }
+        let hidden = Set(protections.keys.filter { unlockedTasks[$0] != protections.record($0).text("revision") })
         var visible = source
         if !hidden.isEmpty {
-            visible.items = visible.items.map { hidden.contains($0.categoryID) ? $0.protectedPreview : $0 }
-            visible.activity.removeAll { hidden.contains($0.text("listId")) }
+            visible.items = visible.items.map { hidden.contains($0.id) ? $0.protectedPreview : $0 }
+            visible.activity.removeAll { hidden.contains($0.text("itemId")) }
         }
         return visible
     }
-    func unlockCategory(_ id: String, password: String = "") async throws {
+    func unlockTask(_ id: String, password: String = "") async throws {
         guard let userID = user?.id else { return }
-        let protection = categoryProtection(id)
+        let protection = taskProtection(id)
         let revision = protection.text("revision")
         guard !revision.isEmpty else { return }
-        let generation = categoryAccessGeneration
+        let generation = taskAccessGeneration
         if protection.text("mode") == "password" {
-            guard networkAvailable else { throw NativeFailure("Conecte-se para conferir a senha da categoria.") }
-            _ = try await api.post(action: "org_category_protection", body: [
-                "operation": .string("unlock"), "listId": .string(id), "revision": .string(revision), "currentPassword": .string(password)
+            guard networkAvailable else { throw NativeFailure("Conecte-se para conferir a senha da tarefa.") }
+            _ = try await api.post(action: "org_task_protection", body: [
+                "operation": .string("unlock"), "itemId": .string(id), "revision": .string(revision), "currentPassword": .string(password)
             ])
         } else {
-            try await Self.authenticateCategoryWithFaceID()
+            try await Self.authenticateTaskWithFaceID()
         }
-        guard !Task.isCancelled, generation == categoryAccessGeneration, user?.id == userID,
-              categoryProtection(id).text("revision") == revision, UIApplication.shared.applicationState != .background else { return }
-        unlockedCategories[id] = revision
+        guard !Task.isCancelled, generation == taskAccessGeneration, user?.id == userID,
+              taskProtection(id).text("revision") == revision, UIApplication.shared.applicationState != .background else { return }
+        unlockedTasks[id] = revision
         publishTasks(confirmedSnapshot)
     }
-    static func authenticateCategoryWithFaceID() async throws {
+    static func authenticateTaskWithFaceID() async throws {
         let context = LAContext()
         context.localizedFallbackTitle = ""
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil), context.biometryType == .faceID else {
             throw NativeFailure("Ative o Face ID nos Ajustes do iPhone para usar esta opção.")
         }
-        guard try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Acessar a categoria protegida") else {
+        guard try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Acessar a tarefa protegida") else {
             throw NativeFailure("Não foi possível confirmar o Face ID.")
         }
     }
-    func saveCategoryProtection(_ id: String, mode: String, revision: String, password: String, currentPassword: String) async throws {
+    func saveTaskProtection(_ id: String, mode: String, revision: String, password: String, currentPassword: String) async throws {
         guard canWrite, let userID = user?.id else { throw NativeFailure("Atualize a conexão antes de alterar a proteção.") }
         working = true
         defer { working = false }
-        let result = try await api.post(action: "org_category_protection", body: [
-            "operation": .string("save"), "listId": .string(id), "mode": .string(mode), "revision": .string(revision),
+        let result = try await api.post(action: "org_task_protection", body: [
+            "operation": .string("save"), "itemId": .string(id), "mode": .string(mode), "revision": .string(revision),
             "password": .string(password), "currentPassword": .string(currentPassword)
         ])
         guard userID == user?.id else { throw NativeFailure("A conta mudou durante o salvamento.") }
         protectionUpdate = UUID()
-        categoryAccessGeneration = UUID()
+        taskAccessGeneration = UUID()
         var source = confirmedSnapshot
-        var protections = source.preferences.record("categoryProtection")
+        var protections = source.preferences.record("taskProtection")
         protections[id] = mode == "none" ? nil : .object(result)
-        source.preferences["categoryProtection"] = .object(protections)
-        unlockedCategories.removeValue(forKey: id)
+        source.preferences["taskProtection"] = .object(protections)
+        unlockedTasks.removeValue(forKey: id)
         publishTasks(source)
         persist()
         WidgetCenter.shared.reloadAllTimelines()
         await refreshExpenseReminders()
     }
-    func relockCategories(_ id: String? = nil) {
-        categoryAccessGeneration = UUID()
+    func relockTasks(_ id: String? = nil) {
+        taskAccessGeneration = UUID()
         if let id {
-            guard unlockedCategories.removeValue(forKey: id) != nil else { return }
+            guard unlockedTasks.removeValue(forKey: id) != nil else { return }
         } else {
-            guard !unlockedCategories.isEmpty else { return }
-            unlockedCategories.removeAll()
+            guard !unlockedTasks.isEmpty else { return }
+            unlockedTasks.removeAll()
         }
         publishTasks(confirmedSnapshot)
     }
-    func recoverCategoryProtection(_ id: String, password: String) async throws {
-        guard canWrite else { throw NativeFailure("Conecte-se para redefinir a proteção.") }
+    func recoverTaskProtection(_ id: String, password: String, newPassword: String) async throws {
+        guard canWrite, let userID = user?.id else { throw NativeFailure("Conecte-se para redefinir a proteção.") }
         working = true
         defer { working = false }
-        _ = try await api.post(action: "org_category_protection", body: [
-            "operation": .string("recover"), "listId": .string(id), "revision": .string(categoryProtection(id).text("revision")),
-            "accountPassword": .string(password)
+        let result = try await api.post(action: "org_task_protection", body: [
+            "operation": .string("recover"), "itemId": .string(id), "revision": .string(taskProtection(id).text("revision")),
+            "accountPassword": .string(password), "mode": .string("password"), "password": .string(newPassword)
         ])
+        guard userID == user?.id else { throw NativeFailure("A conta mudou durante a recuperação.") }
         protectionUpdate = UUID()
         var source = confirmedSnapshot
-        var protections = source.preferences.record("categoryProtection")
-        protections.removeValue(forKey: id)
-        source.preferences["categoryProtection"] = .object(protections)
+        var protections = source.preferences.record("taskProtection")
+        protections[id] = .object(result)
+        unlockedTasks.removeValue(forKey: id)
+        taskAccessGeneration = UUID()
+        source.preferences["taskProtection"] = .object(protections)
         publishTasks(source); persist()
         WidgetCenter.shared.reloadAllTimelines()
     }
@@ -244,8 +263,8 @@ final class NativeStore: ObservableObject {
         await startTask?.value
     }
     var canWrite: Bool { user != nil && networkAvailable && !offline && !needsSync && !working }
-    var editableCategories: [NativeCategory] { snapshot.lists.filter { $0.canEdit && !categoryLocked($0.id) } }
-    func canEdit(_ task: NativeTask) -> Bool { canWrite && !categoryLocked(task.categoryID) && taskIndex.categories[task.categoryID]?.canEdit == true }
+    var editableCategories: [NativeCategory] { snapshot.lists.filter { $0.canEdit } }
+    func canEdit(_ task: NativeTask) -> Bool { canWrite && !taskLocked(task.id) && taskIndex.categories[task.categoryID]?.canEdit == true }
     func category(_ task: NativeTask) -> String { taskIndex.categories[task.categoryID]?.name ?? "Categoria" }
     func start() async {
         let id = api.storageID
@@ -276,7 +295,8 @@ final class NativeStore: ObservableObject {
     private func apply(_ session: NativeSession) {
         requiresPasswordChange = session.requiresPasswordChange
         if let next = session.user, next.id != previousUserID {
-            unlockedCategories.removeAll(); publishTasks(NativeSnapshot()); syncedAt = nil
+            taskAccessGeneration = UUID()
+            unlockedTasks.removeAll(); publishTasks(NativeSnapshot()); syncedAt = nil
             finance.reset(); platform.reset()
             NativeCache.remove(api.storageID); reminders.clear()
         }
@@ -333,11 +353,11 @@ final class NativeStore: ObservableObject {
             guard user?.id == id, protectionAtStart == protectionUpdate else { return }
             UserDefaults.standard.set(next.preferences.text("theme"), forKey: "nativeTheme")
             let visible = projectTasks(next)
-            let accessAtStart = categoryAccessGeneration
+            let accessAtStart = taskAccessGeneration
             let index = await Task.detached(priority: .userInitiated) { NativeTaskIndex(visible, userID: id) }.value
             guard user?.id == id, protectionAtStart == protectionUpdate else { return }
             confirmedSnapshot = next
-            taskIndex = accessAtStart == categoryAccessGeneration ? index : NativeTaskIndex(projectTasks(next), userID: id)
+            taskIndex = accessAtStart == taskAccessGeneration ? index : NativeTaskIndex(projectTasks(next), userID: id)
             snapshot = projectTasks(next)
             offline = false; needsSync = false; connectionProblem = false; syncedAt = Date()
             persist()
@@ -498,7 +518,8 @@ final class NativeStore: ObservableObject {
         do { try await api.logout() }
         catch { report(error); return }
         NativeCache.remove(api.storageID)
-        reminders.clear(); user = nil; previousUserID = nil; UserDefaults.standard.removeObject(forKey: "nativeUser-" + api.storageID); unlockedCategories.removeAll(); publishTasks(NativeSnapshot())
+        taskAccessGeneration = UUID()
+        reminders.clear(); user = nil; previousUserID = nil; UserDefaults.standard.removeObject(forKey: "nativeUser-" + api.storageID); unlockedTasks.removeAll(); publishTasks(NativeSnapshot())
         finance.reset(); platform.reset(); openedFinance = nil; expenseReminderIssue = nil
         syncedAt = nil; offline = false; needsSync = true; connectionProblem = false; locked = false
     }

@@ -3,7 +3,7 @@ import AppIntents
 import EventKit
 
 enum NativeSettingsPage: String, CaseIterable, Identifiable, Hashable {
-    case appearance, layout, notifications, birthdays, places, widgets, siri, menus, features, account, categoryPrivacy, about
+    case appearance, layout, notifications, birthdays, places, widgets, siri, menus, features, account, whatsNew, about
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -17,7 +17,7 @@ enum NativeSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .menus: return "Menus e textos"
         case .features: return "Recursos e sugestões"
         case .account: return "Conta e segurança"
-        case .categoryPrivacy: return "Privacidade das categorias"
+        case .whatsNew: return "Novidades da versão"
         case .about: return "Sistema e permissões"
         }
     }
@@ -33,7 +33,7 @@ enum NativeSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .menus: return "sidebar.left"
         case .features: return "sparkles"
         case .account: return "person.crop.circle"
-        case .categoryPrivacy: return "lock.shield"
+        case .whatsNew: return "sparkles"
         case .about: return "info.circle"
         }
     }
@@ -49,7 +49,7 @@ enum NativeSettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .menus: return "ordem títulos navegação personalizar"
         case .features: return "busca erros valores organização recursos"
         case .account: return "face id código biometria aparelhos acesso login senha trocar usuários criar contas administrador sincronizar sair"
-        case .categoryPrivacy: return "tarefas bloquear face id senha escrita ocultar prévias"
+        case .whatsNew: return "melhorias novidades alterações versão atual"
         case .about: return "iphone ios versão servidor web permissões"
         }
     }
@@ -68,7 +68,7 @@ struct NativeSettingsView: View {
         ("Personalização", [.appearance, .layout]),
         ("Avisos e widgets", [.notifications, .birthdays, .places, .widgets]),
         ("Preferências do sistema", [.siri, .menus, .features]),
-        ("Sua conta", [.account, .categoryPrivacy, .about])
+        ("Sua conta", [.account, .whatsNew, .about])
     ]
     private func matches(_ page: NativeSettingsPage) -> Bool {
         search.isEmpty || (page.title + " " + page.keywords).localizedStandardContains(search)
@@ -104,7 +104,7 @@ struct NativeSettingsView: View {
                     case .menus: NativeRemoteSettings(platform: store.platform, page: .menus, embedded: true)
                     case .features: NativeRemoteSettings(platform: store.platform, page: .features, embedded: true)
                     case .account: NativeAccountSettings(store: store)
-                    case .categoryPrivacy: NativeCategoryPrivacySettings(store: store)
+                    case .whatsNew: NativeWhatsNewView(store: store)
                     case .about: NativeSystemSettings(store: store)
                     }
                 }

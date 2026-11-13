@@ -37,6 +37,7 @@ struct NativeTaskList: View {
     @State private var calendarDay = Date()
     @State private var savingFilter = false
     @State private var filterName = ""
+    @State private var privacyTask: NativeTask?
     @State private var tools = false
     @State private var initialized = false
     @FocusState private var quickFocused: Bool
@@ -45,8 +46,7 @@ struct NativeTaskList: View {
     private var hasFilters: Bool { dateFilter.period != "all" || sort != .due }
     private var currentCategory: NativeCategory? { store.snapshot.lists.first { $0.id == category } }
     private var heading: String { page == .habits ? "Meus hábitos" : page == .calendar ? (currentCategory?.name ?? "Calendário") : currentCategory?.name ?? (tag.isEmpty ? (scope == .all ? store.platform.text("tasksHeading", fallback: scope.rawValue) : scope.rawValue) : "#" + tag) }
-    private var categoryLocked: Bool { store.categoryLocked(category) }
-    private var canAdd: Bool { !categoryLocked && store.user != nil && store.networkAvailable && !store.offline && !store.needsSync && (scope != .trash && !store.editableCategories.isEmpty && (currentCategory == nil || currentCategory?.canEdit == true)) }
+    private var canAdd: Bool { store.user != nil && store.networkAvailable && !store.offline && !store.needsSync && (scope != .trash && !store.editableCategories.isEmpty && (currentCategory == nil || currentCategory?.canEdit == true)) }
     private func query(includeDone: Bool = false) -> [NativeTask] { NativeTaskQuery.select(store.snapshot, scope: page == .calendar ? .all : scope, categoryID: category, tag: tag, search: search, sort: sort, userID: store.user?.id ?? "", includeDone: includeDone, dateFilter: dateFilter) }
     @State private var projection = NativeTaskProjection()
     @State private var loadedRequest: NativeTaskRequest?
@@ -62,9 +62,7 @@ struct NativeTaskList: View {
                 ZStack(alignment: .leading) {
                     VStack(spacing: 0) {
                         header
-                        if categoryLocked {
-                            NativeCategoryGate(store: store, categoryID: category).id(category)
-                        } else {
+                        Group {
                             viewTabs
                             if searching { searchBar }
                             if page == .habits { NativeHabitsView(store: store) }
@@ -85,12 +83,13 @@ struct NativeTaskList: View {
                     Button { newTask() } label: { Image(systemName: "plus").font(.system(size: 24, weight: .medium)).foregroundStyle(.white).frame(width: 54, height: 54).background(nativeBlue, in: Circle()).shadow(color: nativeBlue.opacity(0.28), radius: 10, y: 5) }.accessibilityLabel("Nova tarefa").padding(.trailing, 20).padding(.bottom, 16).disabled(store.working)
                 }
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) { if selecting && !categoryLocked { bulkBar } }
+            .safeAreaInset(edge: .bottom, spacing: 0) { if selecting { bulkBar } }
+            .sheet(item: $privacyTask) { task in NavigationStack { NativeTaskPrivacyEditor(store: store, task: task) } }
             .sheet(isPresented: $profile) { NativeProfileView(store: store) }
             .sheet(isPresented: $filtersOpen) { NativeTaskFilterEditor(sort: Binding(get: { sort.rawValue }, set: { sort = NativeTaskSort(rawValue: $0) ?? .due }), filter: $dateFilter, canSave: store.platform.canWrite, saving: savingDefaults, saved: defaultsSaved, issue: filterIssue, save: saveTaskDefaults) }
             .sheet(isPresented: $categoryEditor) { NativeCategoryEditor(store: store, original: editingCategory) }
-            .sheet(isPresented: $history) { if !categoryLocked { NativeGlobalHistoryView(store: store, categoryID: category) } }
-            .sheet(isPresented: $tools) { if !categoryLocked { NativeCollectionTools(store: store, categoryID: category, items: query(includeDone: true).filter { !store.categoryLocked($0.categoryID) }) } }
+            .sheet(isPresented: $history) { NativeGlobalHistoryView(store: store, categoryID: category) }
+            .sheet(isPresented: $tools) { NativeCollectionTools(store: store, categoryID: category, items: query(includeDone: true).filter { !store.taskLocked($0.id) }) }
             .confirmationDialog("Mover as selecionadas para a lixeira?", isPresented: $bulkTrash, titleVisibility: .visible) { Button("Mover para a lixeira", role: .destructive) { bulk("trash") } }
             .alert("Salvar filtro", isPresented: $savingFilter) { TextField("Nome do filtro", text: $filterName); Button("Cancelar", role: .cancel) {}; Button("Salvar") { saveFilter() } } message: { Text("Guarda categoria, busca, etiqueta e filtro, também no site.") }
             .onAppear {
@@ -113,12 +112,6 @@ struct NativeTaskList: View {
             }
             .onChange(of: store.taskCategoryRequest) { _ in consumeNavigation() }
             .onChange(of: store.taskScopeRequest) { _ in consumeNavigation() }
-            .onChange(of: category) { [category] _ in
-                if !category.isEmpty { store.relockCategories(category) }
-            }
-            .onChange(of: categoryLocked) { locked in
-                if locked { searching = false; search = ""; history = false; tools = false; selecting = false; selected.removeAll() }
-            }
             .onChange(of: store.layout.taskDefaultSort) { sort = NativeTaskSort(rawValue: $0) ?? .due }
             .onChange(of: store.layout.taskDateFilter) { dateFilter = $0 }
             .onChange(of: sort) { _ in defaultsSaved = false; filterIssue = nil }
@@ -138,9 +131,9 @@ struct NativeTaskList: View {
                 Button { selecting.toggle(); selected.removeAll() } label: { Label(selecting ? "Cancelar seleção" : "Selecionar tarefas", systemImage: "checkmark.circle") }
                 Button { Task { await store.refresh() } } label: { Label("Atualizar", systemImage: "arrow.clockwise") }
                 Button { filterName = ""; savingFilter = true } label: { Label("Salvar filtro atual", systemImage: "bookmark") }
-                Button { history = true } label: { Label("Histórico de pagamentos", systemImage: "clock.arrow.circlepath") }.disabled(categoryLocked)
+                Button { history = true } label: { Label("Histórico de pagamentos", systemImage: "clock.arrow.circlepath") }
                 if let currentCategory, currentCategory.fields.text("ownerId") == store.user?.id { Button { editingCategory = currentCategory; categoryEditor = true } label: { Label("Editar categoria", systemImage: "folder.badge.gearshape") } }
-                Button { tools = true } label: { Label("Resumo, importar e exportar", systemImage: "square.and.arrow.up") }.disabled(categoryLocked)
+                Button { tools = true } label: { Label("Resumo, importar e exportar", systemImage: "square.and.arrow.up") }
                 Button { profile = true } label: { Label("Configurações", systemImage: "gearshape") }
                 if store.platform.enabled("search") { Button { store.openedFinance = .init(kind: "search") } label: { Label(store.platform.label("search"), systemImage: "magnifyingglass") } }
                 if store.platform.enabled("birthdays") { Button { store.openedFinance = .init(kind: "birthdays") } label: { Label(store.platform.label("birthdays"), systemImage: "gift") } }
@@ -176,7 +169,8 @@ struct NativeTaskList: View {
                             NativeTaskRow(store: store, task: task, showCategory: category.isEmpty, selecting: selecting, selected: selected.contains(task.id), select: { toggleSelection(task.id) })
                                 .listRowBackground(nativePaper).listRowInsets(EdgeInsets(top: store.layout.rowPadding, leading: 10, bottom: store.layout.rowPadding, trailing: 12))
                                 .swipeActions(edge: .leading, allowsFullSwipe: false) { if task.isActive || task.isDone { Button { Task { await store.complete(task) } } label: { Label(task.isDone ? "Reabrir" : task.completionLabel, systemImage: "checkmark") }.tint(.green).disabled(!store.canEdit(task)) } }
-                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button { privacyTask = task } label: { Label(store.taskProtection(task.id).isEmpty ? "Proteger" : "Proteção", systemImage: "lock.shield") }.tint(.indigo).disabled(!store.canWrite)
                                     // The trash is recoverable, so the swipe moves the task at once.
                                     if task.status == "trashed" { Button { Task { await store.changeStatus(task, to: "restore") } } label: { Label("Restaurar", systemImage: "arrow.uturn.backward") }.disabled(!store.canEdit(task)) }
                                     else { Button(role: .destructive) { Task { await store.changeStatus(task, to: "trashed") } } label: { Label("Lixeira", systemImage: "trash") }.disabled(!store.canEdit(task)); if task.isActive { Button { store.openedTask = task } label: { Label("Data", systemImage: "calendar") }.tint(.orange).disabled(!store.canEdit(task)) } }
@@ -238,7 +232,8 @@ struct NativeTaskList: View {
             if task.status == "trashed" { Button("Restaurar") { Task { await store.changeStatus(task, to: "restore") } } }
             else { Button(task.isDone ? "Reabrir" : task.completionLabel) { Task { await store.complete(task) } }; Button(task.fields.flag("pinned") ? "Desafixar" : "Fixar no início") { patch(task, key: "pinned", value: .bool(!task.fields.flag("pinned"))) }; Button("Alterar data") { store.openedTask = task }; Button("Adiar 1 dia") { Task { await store.postpone(task) } }; Button(task.status == "archived" ? "Desarquivar" : "Arquivar") { Task { await store.changeStatus(task, to: task.status == "archived" ? "todo" : "archived") } }; Button("Mover para a lixeira", role: .destructive) { Task { await store.changeStatus(task, to: "trashed") } } }
         }
-        Button("Selecionar") { selecting = true; toggleSelection(task.id) }.disabled(store.categoryLocked(task.categoryID))
+        Button { privacyTask = task } label: { Label("Proteção da tarefa", systemImage: "lock.shield") }.disabled(!store.canWrite)
+        Button("Selecionar") { selecting = true; toggleSelection(task.id) }.disabled(store.taskLocked(task.id))
         if store.canEdit(task) { Button("Duplicar tarefa") { Task { await store.duplicate(task) } } }
         ShareLink(item: ([task.title, task.fields.text("body")] + task.checks.map { ($0.done ? "☑ " : "☐ ") + $0.title }).joined(separator: "\n")) { Label("Compartilhar", systemImage: "square.and.arrow.up") }
     }
@@ -338,7 +333,7 @@ struct NativeTaskRow: View {
             Button { if selecting { select() } else { Task { await store.complete(task) } } } label: { Image(systemName: selecting ? (selected ? "checkmark.circle.fill" : "circle") : task.isDone ? "checkmark.circle.fill" : "circle").font(.system(size: 23, weight: .light)).foregroundStyle(task.isDone ? Color.secondary.opacity(0.6) : nativeBlue).frame(width: 32, height: 44) }.disabled(!selecting && (!store.canEdit(task) || !["todo", "doing", "done"].contains(task.status))).accessibilityLabel(selecting ? "Selecionar " + task.title : task.isDone ? "Reabrir " + task.title : task.completionLabel + " " + task.title)
             Button { if selecting { select() } else if let onOpen { onOpen() } else { store.openedTask = task } } label: {
                 VStack(alignment: .leading, spacing: 5) {
-                    HStack(alignment: .firstTextBaseline, spacing: 5) { if store.categoryLocked(task.categoryID) { Image(systemName: "lock.fill").foregroundStyle(.secondary).accessibilityLabel("Conteúdo protegido") }; if task.fields.flag("pinned") { Image(systemName: "pin.fill").font(.system(size: 10)).foregroundStyle(nativeBlue) }; Text(task.title).font(.system(size: 16 * store.layout.textScale * accessibleScale, weight: .medium)).strikethrough(task.isDone).foregroundStyle(task.isDone ? Color(uiColor: .secondaryLabel) : Color(uiColor: .label)).multilineTextAlignment(.leading) }
+                    HStack(alignment: .firstTextBaseline, spacing: 5) { if store.taskLocked(task.id) { Image(systemName: "lock.fill").foregroundStyle(.secondary).accessibilityLabel("Conteúdo protegido") }; if task.fields.flag("pinned") { Image(systemName: "pin.fill").font(.system(size: 10)).foregroundStyle(nativeBlue) }; Text(task.title).font(.system(size: 16 * store.layout.textScale * accessibleScale, weight: .medium)).strikethrough(task.isDone).foregroundStyle(task.isDone ? Color(uiColor: .secondaryLabel) : Color(uiColor: .label)).multilineTextAlignment(.leading) }
                     if !task.fields.text("body").isEmpty { Text(task.fields.text("body")).font(.system(size: 12)).foregroundStyle(Color(uiColor: .secondaryLabel)).lineLimit(2).multilineTextAlignment(.leading) }
                     ViewThatFits(in: .horizontal) { HStack(spacing: 9) { dateMeta; otherMeta }; VStack(alignment: .leading, spacing: 4) { dateMeta; otherMeta } }
                     if store.layout.taskShowAmounts, let pending = task.pendingAmount { Text("Total pendente " + NativeDate.money(pending)).font(.system(size: 12)).foregroundStyle(Color(uiColor: .secondaryLabel)) }

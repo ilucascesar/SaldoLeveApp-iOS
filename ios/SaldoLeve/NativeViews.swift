@@ -12,6 +12,8 @@ struct NativeRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var pendingURL: URL?
     @State private var wasInBackground = false
+    @State private var whatsNew = false
+    @State private var checkedRelease = ""
     @AppStorage("nativeAppearance") private var appearance = "system"
     private var active: Bool { scenePhase == .active }
     var body: some View {
@@ -30,6 +32,8 @@ struct NativeRootView: View {
             }
         }
         .tint(nativeBlue).preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil).environment(\.locale, Locale(identifier: "pt_BR")).privacySensitive()
+        .sheet(isPresented: $whatsNew) { NavigationStack { NativeWhatsNewView(store: store) } }
+        .task(id: releaseCheckKey) { await checkRelease() }
         .overlay {
             // Hides the data in the app switcher. Brief inactive moments (Face ID,
             // Central de Controle, a banner) no longer cover the screen and blink.
@@ -72,10 +76,10 @@ struct NativeRootView: View {
         .onChange(of: store.refreshing) { _ in openWidgetDestination() }
         .onChange(of: store.locked) { _ in openWidgetDestination(); runQuickAction() }
         .onChange(of: store.user?.id) { _ in openWidgetDestination() }
-        .onChange(of: store.section) { section in if section != .tasks { store.relockCategories() } }
+        .onChange(of: store.section) { section in if section != .tasks { store.relockTasks() } }
         .onChange(of: quickActions.pending) { _ in runQuickAction() }
         .onChange(of: scenePhase) { phase in
-            if phase == .background { wasInBackground = true; store.relockCategories(); NativeBackgroundRefresh.schedule() } else if phase == .active { wasInBackground = false }
+            if phase == .background { wasInBackground = true; store.relockTasks(); NativeBackgroundRefresh.schedule() } else if phase == .active { wasInBackground = false }
             if phase != .active { store.persist() }
             if phase == .background && UserDefaults.standard.bool(forKey: "nativeBiometrics") { store.locked = store.user != nil }
             if phase == .active {
@@ -92,6 +96,21 @@ struct NativeRootView: View {
         .alert("SaldoLeve", isPresented: Binding(get: { store.message != nil }, set: { if !$0 { store.message = nil } })) {
             Button("OK") { store.message = nil }
         } message: { Text(store.message ?? "") }
+    }
+    private var releaseCheckKey: String {
+        guard active, !store.starting, !store.needsSync, !store.locked, !store.isPreview,
+              store.openedTask == nil, store.openedFinance == nil, !store.menuOpen, let user = store.user else { return "" }
+        return user.id + ":" + NativeRelease.version
+    }
+    private func checkRelease() async {
+        let key = releaseCheckKey
+        guard !key.isEmpty, key != checkedRelease else { return }
+        do {
+            let notes = try await store.api.get(JSONObject.self, action: "release_notes", query: ["platform":"ios", "version":NativeRelease.version])
+            guard !Task.isCancelled, key == releaseCheckKey else { return }
+            checkedRelease = key
+            whatsNew = notes.flag("available") && !notes.flag("dismissed")
+        } catch { /* Try again after a later confirmed connection; do not interrupt startup. */ }
     }
     private func runQuickAction() {
         guard let action = quickActions.pending, !store.starting, !store.locked else { return }

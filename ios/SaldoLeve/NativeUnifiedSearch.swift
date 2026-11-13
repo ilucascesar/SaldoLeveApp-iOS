@@ -38,7 +38,7 @@ import SwiftUI
                 if loading { ProgressView("Buscando no servidor…") }
                 if let issue { Text(issue).font(.footnote).foregroundStyle(.secondary) }
                 Section("\(total) resultado(s)") {
-                    ForEach(items.filter { store.categoryProtection($0.record("target").text("listId")).isEmpty }.map(NativeRecord.init)) { record in
+                    ForEach(items.filter { store.taskProtection($0.record("target").text("itemId").isEmpty ? $0.record("target").text("id") : $0.record("target").text("itemId")).isEmpty }.map(NativeRecord.init)) { record in
                         Button { Task { await open(record.fields) } } label: {
                             VStack(alignment: .leading, spacing: 5) {
                                 HStack(alignment: .top) { Text(record.fields.text("title")).font(.headline).foregroundStyle(.primary); Spacer(); if let cents = record.fields["amountCents"]?.number { Text(NativeDate.money(cents)).font(.subheadline.bold()).foregroundStyle(.primary) } }
