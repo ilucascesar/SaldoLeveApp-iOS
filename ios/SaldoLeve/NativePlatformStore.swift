@@ -29,8 +29,8 @@ import CryptoKit
         return (supplied + Self.menu).filter { $0 != "expenses" && Self.menu.contains($0) && seen.insert($0).inserted && (!hidden.contains($0) || ["dashboard", "tasks", "remote", "profile"].contains($0)) && (!["birthdays", "search"].contains($0) || enabled($0)) }
     }
     func reset() { snapshot = NativePlatformSnapshot(); loaded = false; issue = nil }
-    func refresh() async {
-        guard parent.user != nil, parent.networkAvailable, !parent.offline, !loading else { return }
+    func refresh(afterWrite: Bool = false) async {
+        guard parent.user != nil, parent.networkAvailable, !parent.offline, !loading, !saving || afterWrite else { return }
         #if DEBUG
         if parent.isPreview { if !loaded { preview() }; return }
         #endif
@@ -76,9 +76,9 @@ import CryptoKit
         saving = true; defer { saving = false }
         do {
             let result = try await write(action: "platform_save_config", body: ["revision": .number(Double(revision)), "config": .object(config), "applyBirthdayDefaults": .bool(applyBirthdayDefaults)])
-            await refresh()
+            await refresh(afterWrite:true)
             guard loaded, issue == nil, snapshot.revision == result.integer("revision") else { throw NativeFailure("A gravação foi enviada. Atualize para conferir a configuração no servidor.") }
-        } catch { parent.noteConnectionFailure(error); if (error as? NativeFailure)?.status != 499 { await refresh() }; throw error }
+        } catch { parent.noteConnectionFailure(error); if (error as? NativeFailure)?.status != 499 { await refresh(afterWrite:true) }; throw error }
     }
     func saveLayout(_ layout: NativeLayoutPreferences, revision: Int) async throws {
         guard snapshot.apiVersion >= 7 else { throw NativeFailure("Envie primeiro o pacote HostGator 2.7.0 para salvar os novos layouts.", status: 422) }
@@ -91,14 +91,14 @@ import CryptoKit
         guard canWrite else { throw NativeFailure("Sem conexão com o servidor. O aniversário não foi salvo.") }
         saving = true; defer { saving = false }
         _ = try await write(action: "birthday_save", body: value.fields)
-        await refresh()
+        await refresh(afterWrite:true)
         if issue != nil { throw NativeFailure("Atualize para confirmar os aniversários no servidor.") }
     }
     func deleteBirthday(_ value: NativeBirthday) async throws {
         guard canWrite else { throw NativeFailure("Conecte-se antes de excluir.") }
         saving = true; defer { saving = false }
         _ = try await write(action: "birthday_delete", body: ["id": .string(value.id), "revision": value.fields["revision"] ?? .number(0)])
-        await refresh()
+        await refresh(afterWrite:true)
         if issue != nil { throw NativeFailure("Atualize para confirmar os aniversários no servidor.") }
     }
     func importBirthdays(_ values: [NativeBirthday]) async throws -> (Int, Int) {
@@ -111,7 +111,7 @@ import CryptoKit
             let response = try await write(action: "birthdays_import", body: ["items": .array(batch.map { .object($0.fields) })])
             imported += response.integer("imported"); skipped += response.integer("skipped")
         }
-        await refresh(); return (imported, skipped)
+        await refresh(afterWrite:true); return (imported, skipped)
     }
     // Marks this year's birthday as done (message sent). The person keeps its
     // place in the list; the server confirms before the checkbox changes.
@@ -162,7 +162,7 @@ import CryptoKit
                 _ = try await write(action: "birthdays_sync", body: ["items": .array(Array(items[offset..<min(items.count, offset + 200)]))])
             }
             state["hash"] = digest; state["sent"] = now; UserDefaults.standard.set(state, forKey: key)
-            if !items.isEmpty { await refresh() }
+            if !items.isEmpty { await refresh(afterWrite:true) }
         } catch { issue = "Não foi possível sincronizar os aniversários dos Contatos. " + error.localizedDescription }
     }
     #if DEBUG

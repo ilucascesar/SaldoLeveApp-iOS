@@ -417,7 +417,7 @@ struct NativeInlineCheckRow: View {
     }
     private var menu: some View {
         Menu {
-            Button(action:note) { Label(hasNote ? "Ver observação" : "Adicionar observação",systemImage:"text.bubble") }
+            if hasNote || editable { Button(action:note) { Label(hasNote ? "Ver observação" : "Adicionar observação",systemImage:"text.bubble") } }
             Button(action:appearance) { Label("Layout desta subtarefa",systemImage:"slider.horizontal.3") }
             if let viewReceipts { Button(action: viewReceipts) { Label("Visualizar comprovante", systemImage: "doc.text.magnifyingglass") } }
             if editable && !saving {
@@ -437,6 +437,6 @@ struct NativeInlineCheckRow: View {
             if canTransfer { Button("Transferir para outra tarefa") { transfer() } }
             Button("Remover subtarefa", role: .destructive) { remove() }
             }
-        } label: { Image(systemName: "ellipsis").foregroundStyle(.secondary).frame(width: 22, height: p.compact || p.style == "ledger" ? 36 : 40) }.disabled((!editable || saving) && viewReceipts == nil).accessibilityLabel("Mais opções da subtarefa")
+        } label: { Image(systemName: "ellipsis").foregroundStyle(.secondary).frame(width: 22, height: p.compact || p.style == "ledger" ? 36 : 40) }.disabled(saving).accessibilityLabel("Mais opções da subtarefa")
     }
 }
