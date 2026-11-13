@@ -93,16 +93,24 @@ struct NativeMoneySummaryLine: View {
     @ObservedObject var store: NativeStore
     var categoryID: String
     var expanded = false
-    @State private var totals: JSONObject = [:]
+    @State private var storedTotals: JSONObject = [:]
+    @State private var totalsProtection = ""
+    private var protectionKey: String {
+        let protections = store.snapshot.preferences.record("taskProtection")
+        return protections.keys.sorted().map { $0 + ":" + protections.record($0).text("revision") }.joined(separator: "|")
+    }
+    private var totals: JSONObject { totalsProtection == protectionKey ? storedTotals : [:] }
     @State private var open = false
     var body: some View {
         Group {
             if expanded { details }
             else if !totals.isEmpty { Button { open = true } label: { Label("Este mês · a pagar \(NativeDate.money(totals["pay"]?.object["pending"]?.number)) · a receber \(NativeDate.money(totals["receive"]?.object["pending"]?.number))", systemImage: "chart.bar").font(.system(size: 12)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading) }.padding(9).background(nativePaper, in: RoundedRectangle(cornerRadius: 10)) }
         }
-        .task(id: categoryID + String(describing: store.syncedAt)) {
-            guard !categoryID.isEmpty, !store.offline, !store.isPreview, store.snapshot.items.contains(where: { $0.categoryID == categoryID && $0.pendingAmount != nil }) else { totals = [:]; return }
-            do { let data = try await store.api.get(JSONObject.self, action: "org_money_summary", query: ["listId": categoryID, "month": NativeMonth.key(Date())]); if !Task.isCancelled { totals = data["totals"]?.object ?? [:] } } catch { }
+        .task(id: categoryID + String(describing: store.syncedAt) + protectionKey) {
+            storedTotals = [:]
+            let privacy = protectionKey
+            guard !categoryID.isEmpty, !store.offline, !store.isPreview, store.snapshot.items.contains(where: { $0.categoryID == categoryID && $0.pendingAmount != nil }) else { return }
+            do { let data = try await store.api.get(JSONObject.self, action: "org_money_summary", query: ["listId": categoryID, "month": NativeMonth.key(Date())]); if !Task.isCancelled && protectionKey == privacy { storedTotals = data["totals"]?.object ?? [:]; totalsProtection = privacy } } catch { }
         }
         .sheet(isPresented: $open) { NavigationStack { Form { details }.navigationTitle("Resumo do mês").navigationBarTitleDisplayMode(.inline).toolbar { Button("Fechar") { open = false } } }.presentationDetents([.medium, .large]) }
     }
