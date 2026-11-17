@@ -1,5 +1,48 @@
 import SwiftUI
 
+/// UITextView somente leitura: permite selecionar e copiar trechos do texto.
+struct NativeSelectableText: UIViewRepresentable {
+    let text: String
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView()
+        view.isEditable = false; view.isSelectable = true; view.isScrollEnabled = true
+        view.backgroundColor = .clear
+        view.font = UIFont.preferredFont(forTextStyle: .body)
+        view.adjustsFontForContentSizeCategory = true
+        view.textContainerInset = UIEdgeInsets(top: 12, left: 8, bottom: 12, right: 8)
+        view.text = text
+        return view
+    }
+    func updateUIView(_ view: UITextView, context: Context) { if view.text != text { view.text = text } }
+}
+
+/// Balão de leitura da observação: ver, selecionar e copiar. A edição fica no menu da subtarefa.
+struct NativeSubtaskNoteViewer: View {
+    let title: String
+    let text: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var copied = false
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 8) {
+                if !title.isEmpty { Text(title).font(.headline).padding(.horizontal, 16).padding(.top, 8) }
+                NativeSelectableText(text: text)
+                    .background(RoundedRectangle(cornerRadius: 14).fill(Color(.secondarySystemBackground)))
+                    .padding(.horizontal, 12)
+                Text("Toque e segure para selecionar trechos. Para editar, use os três pontos da subtarefa.")
+                    .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 16).padding(.bottom, 8)
+            }
+            .navigationTitle("Observação").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(copied ? "Copiado" : "Copiar tudo") { UIPasteboard.general.string = text; copied = true }
+                }
+            }
+        }.presentationDetents([.medium, .large])
+    }
+}
+
 struct NativeSubtaskNoteEditor: View {
     @ObservedObject var store: NativeStore
     let taskID: String

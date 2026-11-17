@@ -40,6 +40,7 @@ struct NativeTaskEditor: View {
     @State private var remindersOptions = false
     @State private var repetitionOptions = false
     @State private var noteCheck: NativeRecord?
+    @State private var noteViewCheck: NativeRecord?
     @State private var appearanceOptions = false
     @State private var appearanceCheck: NativeRecord?
     @State private var locationOptions = false
@@ -131,6 +132,7 @@ struct NativeTaskEditor: View {
             } message: { Text(receiptIssue ?? "") }
             .sheet(isPresented: $remindersOptions) { NativeReminderOptions(fields: $task.fields) }
             .sheet(isPresented: $repetitionOptions) { NativeTaskRepetition(fields: $task.fields) }
+            .sheet(item:$noteViewCheck) { check in NativeSubtaskNoteViewer(title:check.fields.text("text"),text:store.subtaskNote(task.id,check.id).text("text")) }
             .sheet(item:$noteCheck) { check in NativeSubtaskNoteEditor(store:store,taskID:task.id,checkID:check.id,title:check.fields.text("text")) }
             .sheet(isPresented:$appearanceOptions) { NativeTaskAppearance(store:store,taskID:task.id) }
             .sheet(item:$appearanceCheck) { check in NativeTaskAppearance(store:store,taskID:task.id,checkID:check.id) }
@@ -381,7 +383,7 @@ struct NativeTaskEditor: View {
                 submit: registerCheck, reopen: recorded ? { reopenCheck(id) } : nil, note: {
                     if !editable { noteCheck = NativeRecord(fields:check.fields); return }
                     Task { addCheck(); autosave?.cancel(); guard newCheck.isEmpty, await commit(closing:false) else { return }; noteCheck = NativeRecord(fields:check.fields) }
-                }, hasNote:!store.subtaskNote(task.id,id).text("text").isEmpty, appearance:{
+                }, viewNote: { noteViewCheck = NativeRecord(fields:check.fields) }, hasNote:!store.subtaskNote(task.id,id).text("text").isEmpty, appearance:{
                     Task { if editable { addCheck(); autosave?.cancel(); guard newCheck.isEmpty,await commit(closing:false) else { return } }; appearanceCheck = NativeRecord(fields:check.fields) }
                 }, viewReceipts: receipts.isEmpty ? nil : {
                 if receipts.count == 1, let file = receipts.first { previewReceipt(file) }

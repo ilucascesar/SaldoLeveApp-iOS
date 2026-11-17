@@ -14,6 +14,9 @@ with zipfile.ZipFile(target) as archive:
     widget = app + 'PlugIns/SaldoLeveWidgets.appex/'
     main = plistlib.loads(archive.read(app + 'Info.plist'))
     extension = plistlib.loads(archive.read(widget + 'Info.plist'))
+    # A numeração recomeçou em 1.0 (versão oficial): vale todas as verificações atuais.
+    _numbers = tuple(int(part) for part in main['CFBundleShortVersionString'].split('.'))
+    VERSION = (99, 0, 0) if _numbers[0] < 2 else _numbers
     assert main['CFBundleIdentifier'] == 'br.com.ilucascesar.saldoleve'
     assert main['CFBundleShortVersionString'] == (sys.argv[2] if len(sys.argv) > 2 else '2.2.0')
     assert extension['CFBundleIdentifier'] == main['CFBundleIdentifier'] + '.widgets'
@@ -23,7 +26,7 @@ with zipfile.ZipFile(target) as archive:
     assert 'iPhoneOS' in extension['CFBundleSupportedPlatforms']
     binaries = [(app, 'SaldoLeve'), (widget, 'SaldoLeveWidgets')]
     share = app + 'PlugIns/SaldoLeveShare.appex/'
-    if tuple(map(int, main['CFBundleShortVersionString'].split('.'))) >= (2, 9, 0):
+    if VERSION >= (2, 9, 0):
         sharing = plistlib.loads(archive.read(share + 'Info.plist'))
         assert sharing['CFBundleIdentifier'] == main['CFBundleIdentifier'] + '.share'
         assert sharing['CFBundleVersion'] == main['CFBundleVersion']
@@ -50,39 +53,39 @@ with zipfile.ZipFile(target) as archive:
             position += length
         assert platform == 2, 'Simulator or non-iOS executable in IPA'
         config = json.loads(archive.read(prefix + 'config.json'))
-        expected_path = 'SaldoLeve' if tuple(map(int, main['CFBundleShortVersionString'].split('.'))) >= (2, 7, 6) else 'SaldoLeveApp'
+        expected_path = 'SaldoLeve' if VERSION >= (2, 7, 6) else 'SaldoLeveApp'
         assert config['serverURL'] == f'https://tools.ilucas.com.br/{expected_path}/sistema.php'
     assert b'--ui-preview' not in archive.read(app + 'SaldoLeve'), 'Debug fixture enabled in Release'
     assert 'Cartão principal'.encode() not in archive.read(app + 'SaldoLeve'), 'Synthetic finance fixtures in Release'
     settings = plistlib.loads(archive.read(app + 'Settings.bundle/Root.plist'))
     assert settings['PreferenceSpecifiers']
-    if tuple(map(int, main['CFBundleShortVersionString'].split('.'))) >= (2, 5, 2):
+    if VERSION >= (2, 5, 2):
         assert main['UIApplicationSceneManifest']['UIApplicationSupportsMultipleScenes'] is False, 'Scene lifecycle is required by the iOS 27 SDK'
         for prefix in [app, widget]:
             info = plistlib.loads(archive.read(prefix + 'Info.plist'))
             assert int(info['DTSDKName'].removeprefix('iphoneos').split('.')[0]) >= 27, 'Portrait widgets require the iOS 27 SDK'
         assert b'systemExtraLargePortrait' in archive.read(widget + 'SaldoLeveWidgets'), 'Portrait widget family missing'
-        if tuple(map(int, main['CFBundleShortVersionString'].split('.'))) >= (2, 5, 3):
+        if VERSION >= (2, 5, 3):
             assert b'SaldoLevePortraitWidgets' in archive.read(widget + 'SaldoLeveWidgets'), 'Dedicated portrait widget missing'
-    if tuple(map(int, main['CFBundleShortVersionString'].split('.'))) >= (2, 5, 0):
+    if VERSION >= (2, 5, 0):
         assert main.get('NSContactsUsageDescription'), 'Contacts purpose is required'
         assert b'--preview-contacts' not in archive.read(app + 'SaldoLeve'), 'Contact fixtures in Release'
         assert b'--preview-birthdays' not in archive.read(app + 'SaldoLeve'), 'Birthday fixtures in Release'
-    if tuple(map(int, main['CFBundleShortVersionString'].split('.'))) >= (2, 7, 0):
+    if VERSION >= (2, 7, 0):
         assert main.get('NSLocationWhenInUseUsageDescription'), 'Location purpose is required'
         # 2.7.0-2.7.1 asked only "While Using"; 2.7.2 asks "Always" for place monitoring (checked below).
-        if tuple(map(int, main['CFBundleShortVersionString'].split('.'))) < (2, 7, 2):
+        if VERSION < (2, 7, 2):
             assert not main.get('NSLocationAlwaysAndWhenInUseUsageDescription'), 'Only "While Using" location is requested'
         shortcuts = [item.get('UIApplicationShortcutItemType') for item in main.get('UIApplicationShortcutItems', [])]
         assert len(shortcuts) == 3 and all(shortcuts), 'Home Screen quick actions missing'
         assert any(name.startswith(app + 'Metadata.appintents/') for name in archive.namelist()), 'Siri App Intents metadata missing'
-    if tuple(map(int, main['CFBundleShortVersionString'].split('.'))) >= (2, 7, 1):
+    if VERSION >= (2, 7, 1):
         assert main.get('NSRemindersFullAccessUsageDescription') and main.get('NSRemindersUsageDescription'), 'Reminders purpose is required'
         assert b'nativeRemindersImport' in archive.read(app + 'SaldoLeve'), 'Reminders import missing'
-    if tuple(map(int, main['CFBundleShortVersionString'].split('.'))) >= (2, 7, 2):
+    if VERSION >= (2, 7, 2):
         assert main.get('NSLocationAlwaysAndWhenInUseUsageDescription'), 'Always location purpose is required'
         assert b'nativeGeofenceAlerts' in archive.read(app + 'SaldoLeve'), 'Place monitoring missing'
-    if tuple(map(int, main['CFBundleShortVersionString'].split('.'))) >= (2, 7, 3):
+    if VERSION >= (2, 7, 3):
         alternates = main.get('CFBundleIcons', {}).get('CFBundleAlternateIcons', {})
         icon_files = sorted({name.split('/')[-1] for name in archive.namelist() if name.startswith(app) and 'AppIcon' in name})
         assert {'AppIcon-' + name for name in ['Azul', 'Verde', 'Roxo', 'Rosa', 'Preto', 'Claro']} <= set(alternates), \

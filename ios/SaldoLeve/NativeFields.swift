@@ -217,6 +217,7 @@ struct NativeInlineCheckRow: View {
     var submit: () -> Void = {}
     var reopen: (() -> Void)? = nil
     var note: () -> Void = {}
+    var viewNote: () -> Void = {}
     var hasNote = false
     var appearance: () -> Void = {}
     var viewReceipts: (() -> Void)? = nil
@@ -260,7 +261,7 @@ struct NativeInlineCheckRow: View {
                 }.font(.system(size:11)).foregroundStyle(.secondary).frame(width:46,height:40)
             }.disabled(!editable || saving).accessibilityLabel("Data e horário da subtarefa")
             if let viewReceipts { Button(action:viewReceipts) { Image(systemName:"paperclip").font(.system(size:14)).foregroundStyle(nativeBlue).frame(width:28,height:40) }.accessibilityLabel("Possui anexo. Visualizar comprovante") }
-            if hasNote { Button(action:note) { Image(systemName:"text.bubble").font(.system(size:12)).foregroundStyle(.secondary).frame(width:26,height:40) }.accessibilityLabel("Ver observação") }
+            if hasNote { Button(action:viewNote) { Image(systemName:"text.bubble").font(.system(size:12)).foregroundStyle(.secondary).frame(width:26,height:40) }.accessibilityLabel("Ver observação") }
             menu
         }.padding(.vertical,p.compact ? 0 : 4)
     }
@@ -404,7 +405,7 @@ struct NativeInlineCheckRow: View {
     }
     private var rowActions: some View {
         HStack(spacing: 2) {
-            if hasNote { Button(action:note) { Image(systemName:"text.bubble").font(.system(size:13)).foregroundStyle(.secondary).frame(width:30,height:44) }.accessibilityLabel("Ver observação") }
+            if hasNote { Button(action:viewNote) { Image(systemName:"text.bubble").font(.system(size:13)).foregroundStyle(.secondary).frame(width:30,height:44) }.accessibilityLabel("Ver observação") }
             if receiptShortcut {
                 Button(action: attach) {
                     Image(systemName: "paperclip").font(.system(size: 17, weight: .medium))
@@ -415,9 +416,18 @@ struct NativeInlineCheckRow: View {
             menu
         }
     }
+    private var repeatsNextCycle: Bool { recurring && !done && (fields["repeatMonthly"]?.bool ?? true) }
+    /// Ícone discreto nas subtarefas que voltam no próximo ciclo.
     private var menu: some View {
+        HStack(spacing: 0) {
+            if repeatsNextCycle { Image(systemName:"repeat").font(.system(size:12)).foregroundStyle(nativeBlue).frame(width:20,height:40).accessibilityLabel("Repete no próximo ciclo") }
+            menuButton
+        }
+    }
+    private var menuButton: some View {
         Menu {
-            if hasNote || editable { Button(action:note) { Label(hasNote ? "Ver observação" : "Adicionar observação",systemImage:"text.bubble") } }
+            if hasNote && !editable { Button(action:viewNote) { Label("Ver observação",systemImage:"text.bubble") } }
+            else if editable { Button(action:note) { Label(hasNote ? "Editar observação" : "Adicionar observação",systemImage:"text.bubble") } }
             Button(action:appearance) { Label("Layout desta subtarefa",systemImage:"slider.horizontal.3") }
             if let viewReceipts { Button(action: viewReceipts) { Label("Visualizar comprovante", systemImage: "doc.text.magnifyingglass") } }
             if editable && !saving {

@@ -7,6 +7,20 @@ struct NativeTaskRepetition: View {
     @State private var frequency = "monthly"
     @State private var interval = 1
     @State private var initialized = false
+    @State private var wasRepeating = false
+    private var checks: [JSONValue] { fields["checklist"]?.array ?? [] }
+    private var canApplyPending: Bool {
+        wasRepeating && checks.contains { $0.object.flag("done") } && checks.contains { !$0.object.flag("done") }
+    }
+    /// Concluídas viram histórico (não voltam); as pendentes continuam repetindo.
+    private func applyPending(force: Bool) {
+        fields["checklist"] = .array(checks.map { (item: JSONValue) -> JSONValue in
+            guard case .object(var check) = item else { return item }
+            if check.flag("done") { check["repeatMonthly"] = .bool(false) }
+            else if force { check["repeatMonthly"] = .bool(true) }
+            return .object(check)
+        })
+    }
     var body: some View {
         NavigationStack {
             Form {
@@ -17,6 +31,11 @@ struct NativeTaskRepetition: View {
                         }
                     }
                 } footer: { Text("Ao concluir a tarefa e suas subtarefas pendentes, o histórico é mantido e as datas avançam pelo intervalo escolhido. Você pode desmarcar subtarefas que não devem voltar no próximo ciclo.") }
+                if canApplyPending {
+                    Section {
+                        Button { applyPending(force: true); dismiss() } label: { Label("Repetir só as pendentes", systemImage: "repeat") }
+                    } footer: { Text("As subtarefas já concluídas ficam no histórico e não voltam no próximo ciclo. Só as pendentes continuam repetindo.") }
+                }
                 if choice == "custom" {
                     Section("Personalizar") {
                         Stepper("A cada \(interval)",value:$interval,in:1...365)
@@ -30,12 +49,14 @@ struct NativeTaskRepetition: View {
                 ToolbarItem(placement:.cancellationAction) { Button("Cancelar") { dismiss() } }
                 ToolbarItem(placement:.confirmationAction) { Button("Aplicar") {
                     fields["repeat"] = .object(["frequency":.string(choice == "none" ? "none" : choice == "custom" ? frequency : "monthly"),"interval":.number(Double(Int(choice) ?? (choice == "custom" ? interval : 1)))])
+                    if choice != "none" && !wasRepeating { applyPending(force: false) }
                     dismiss()
                 }.bold() }
             }
             .onAppear {
                 guard !initialized else { return }; initialized = true
                 let value = fields.record("repeat"); frequency = value.text("frequency").isEmpty ? "none" : value.text("frequency"); interval = max(1,value.integer("interval"))
+                wasRepeating = frequency != "none"
                 choice = frequency == "none" ? "none" : frequency == "monthly" && [1,6,12].contains(interval) ? String(interval) : "custom"
                 if frequency == "none" { frequency = "monthly" }
             }
