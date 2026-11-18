@@ -172,7 +172,7 @@ struct NativeTaskReceipts: View {
                                 if data.count <= 2_097_152, let mime = type?.preferredMIMEType, let ext = type?.preferredFilenameExtension {
                                     batch.append(NativePendingReceipt(bytes: data, name: "Comprovante-\(stamp)." + ext, type: mime))
                                 } else {
-                                    batch.append(NativePendingReceipt(bytes: NativeImage.receipt(image), name: "Comprovante-\(stamp).jpg", type: "image/jpeg"))
+                                    batch.append(NativePendingReceipt(bytes: try NativeImage.receipt(image), name: "Comprovante-\(stamp).jpg", type: "image/jpeg"))
                                 }
                             }
                             await uploadBatch(batch)
@@ -239,7 +239,10 @@ struct NativeTaskReceipts: View {
         working = true; issue = nil; status = ""
         Task {
             defer { working = false }
-            await uploadBatch([NativePendingReceipt(bytes: NativeImage.receipt(image), name: "Comprovante-\(Int(Date().timeIntervalSince1970)).jpg", type: "image/jpeg")])
+            do {
+                let bytes = try NativeImage.receipt(image)
+                await uploadBatch([NativePendingReceipt(bytes: bytes, name: "Comprovante-\(Int(Date().timeIntervalSince1970)).jpg", type: "image/jpeg")])
+            } catch { issue = error.localizedDescription }
         }
     }
     private func pasteReceipt() {
@@ -273,7 +276,7 @@ struct NativeTaskReceipts: View {
         guard size <= (type.hasPrefix("image/") ? 30_000_000 : 2_097_152) else { throw NativeFailure("“\(url.lastPathComponent)” é muito grande. PDFs podem ter até 2 MB.") }
         let bytes = try Data(contentsOf: url)
         if bytes.count > 2_097_152, type.hasPrefix("image/"), let image = UIImage(data: bytes) {
-            return NativePendingReceipt(bytes: NativeImage.receipt(image), name: url.deletingPathExtension().lastPathComponent + ".jpg", type: "image/jpeg")
+            return NativePendingReceipt(bytes: try NativeImage.receipt(image), name: url.deletingPathExtension().lastPathComponent + ".jpg", type: "image/jpeg")
         }
         return NativePendingReceipt(bytes: bytes, name: url.lastPathComponent, type: type)
     }
