@@ -3,7 +3,7 @@ import SwiftUI
 struct NativeInstallmentGenerator: View {
     @Binding var task: NativeTask
     @Environment(\.dismiss) private var dismiss
-    @State private var name = "Parcela"
+    @State private var name = ""
     @State private var total = 60
     @State private var first = 1
     @State private var amount = ""
@@ -14,7 +14,7 @@ struct NativeInstallmentGenerator: View {
         NavigationStack {
             Form {
                 Section("Parcelas com fim definido") {
-                    TextField("Nome das parcelas", text: $name)
+                    TextField("Nome das parcelas (opcional)", text: $name)
                     Stepper("Total do contrato: \(total)", value: $total, in: 2...100).onChange(of: total) { first = min(first, $0) }
                     Stepper("Primeira a gerar: \(first)", value: $first, in: 1...total)
                     DatePicker("Vencimento da primeira", selection: $due)
@@ -22,6 +22,7 @@ struct NativeInstallmentGenerator: View {
                     TextField("Valor (R$)", text: $amount).keyboardType(.decimalPad)
                 }
                 Section {
+                    Text(name.trimmingCharacters(in: .whitespaces).isEmpty ? "Sem nome, cada subtarefa fica só com o número (\(first)/\(total)) e o valor." : "Cada subtarefa será “\(name) \(first)/\(total)”.").font(.footnote).foregroundStyle(.secondary)
                     Text("Serão criadas \(total - first + 1) subtarefas, de \(first)/\(total) até \(total)/\(total), com vencimento mensal. Você poderá pagar qualquer uma, inclusive a última, sem alterar as demais.")
                     Text("A tarefa ficará sem repetição automática. Os centavos do valor total serão ajustados na última parcela. Para datas no fim do mês, o gerador usa o último dia dos meses mais curtos.").font(.footnote).foregroundStyle(.secondary)
                 }
@@ -32,6 +33,7 @@ struct NativeInstallmentGenerator: View {
     }
     private func generate() {
         do {
+            let label = name.trimmingCharacters(in: .whitespacesAndNewlines)
             guard let value = NativeDate.cents(amount), value > 0 else { throw NativeFailure("Informe o valor total ou por parcela.") }
             let parcel = amountMode == "parcel" ? value : value / total
             let last = amountMode == "parcel" ? value : value - parcel * (total - 1)
@@ -44,11 +46,11 @@ struct NativeInstallmentGenerator: View {
                 let lastDay = calendar.range(of: .day, in: .month, for: month)!.count
                 let day = calendar.date(bySetting: .day, value: min(anchor, lastDay), of: month)!
                 let date = calendar.date(bySettingHour: calendar.component(.hour, from: due), minute: calendar.component(.minute, from: due), second: 0, of: day)!
-                checks.append(.object(["id": .string(UUID().uuidString), "text": .string("\(name) \(number)/\(total)"), "done": .bool(false), "repeatMonthly": .bool(false), "remindAt": .string(NativeDate.iso(date)), "amountCents": .number(Double(number == total ? last : parcel)), "installmentNumber": .number(Double(number))]))
+                checks.append(.object(["id": .string(UUID().uuidString), "text": .string(label.isEmpty ? "\(number)/\(total)" : "\(label) \(number)/\(total)"), "done": .bool(false), "repeatMonthly": .bool(false), "remindAt": .string(NativeDate.iso(date)), "amountCents": .number(Double(number == total ? last : parcel)), "installmentNumber": .number(Double(number))]))
             }
             task.fields["checklist"] = .array(checks); task.fields["repeat"] = .object(["frequency": .string("none"), "interval": .number(1)])
             if !task.isMoney { task.fields["moneyMode"] = .string("pay") }
-            if task.title.isEmpty { task.fields["title"] = .string(name + " (\(total)x)") }
+            if task.title.isEmpty { task.fields["title"] = .string((label.isEmpty ? "Parcelas" : label) + " (\(total)x)") }
             dismiss()
         } catch { issue = error.localizedDescription }
     }
