@@ -416,7 +416,7 @@ struct NativeInlineCheckRow: View {
             menu
         }
     }
-    private var repeatsNextCycle: Bool { recurring && !done && (fields["repeatMonthly"]?.bool ?? true) }
+    private var repeatsNextCycle: Bool { recurring && (fields["repeatMonthly"]?.bool ?? true) }
     /// Ícone discreto nas subtarefas que voltam no próximo ciclo.
     private var menu: some View {
         HStack(spacing: 0) {
@@ -432,7 +432,7 @@ struct NativeInlineCheckRow: View {
             if let viewReceipts { Button(action: viewReceipts) { Label("Visualizar comprovante", systemImage: "doc.text.magnifyingglass") } }
             if editable && !saving {
             Button { date = true } label: { Label("Data e horário", systemImage: "calendar") }
-            Button { attach() } label: { Label("Anexar comprovante", systemImage: "paperclip") }
+            Button { attach() } label: { Label(viewReceipts == nil ? "Anexar comprovante" : "Anexar outro comprovante", systemImage: "paperclip") }
             if manualPayment {
                 if !done { Button("Pagar / antecipar") { payment() } }
                 Button(done ? "Valores original e pago" : "Alterar valor original") { if done { values() } else { amount = true } }

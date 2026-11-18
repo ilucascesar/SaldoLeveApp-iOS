@@ -51,6 +51,7 @@ struct NativeTaskEditor: View {
     }
     @State private var showComments = false
     @State private var reordering = false
+    @State private var detailsSheet = false
     @State private var trashConfirm = false
     @State private var newCheck = ""
     @FocusState private var newCheckFocused: Bool
@@ -112,10 +113,27 @@ struct NativeTaskEditor: View {
                         Button { Task { if editable { addCheck(); autosave?.cancel(); guard newCheck.isEmpty, await commit(closing:false) else { return } }; appearanceOptions = true } } label: { Label("Layout das subtarefas",systemImage:"slider.horizontal.3") }
                         Button { exportChecklist(share: false) } label: { Label("Copiar lista de subtarefas", systemImage: "doc.on.doc") }
                         Button { exportChecklist(share: true) } label: { Label("Compartilhar lista de subtarefas", systemImage: "square.and.arrow.up") }
+                        if editable, task.checks.count > 1 { Button { reordering = true } label: { Label("Reordenar subtarefas", systemImage: "arrow.up.arrow.down") } }
+                        Divider()
+                        Group {
+                            Button { detailsSheet = true } label: { Label("Mais opções da tarefa…", systemImage: "slider.horizontal.3") }.accessibilityIdentifier("task-more-options")
+                            Button { installmentGenerator = true } label: { Label("Gerar parcelas ou série", systemImage: "list.number") }.disabled(saving)
+                            if task.checks.contains(where: task.usesManualPayment) { Button { openPayment() } label: { Label("Pagar / antecipar parcelas", systemImage: "creditcard") }.disabled(saving || !store.canWrite) }
+                            if !task.id.isEmpty, task.fields["repeat"]?.object.text("frequency") == "monthly", task.isActive {
+                                Button { pauseMenu = true } label: { Label(task.paused ? "Retomar cobrança" : "Pausar cobrança", systemImage: "pause.circle") }.disabled(!store.canWrite || task != baseline || saving)
+                            }
+                            if !task.id.isEmpty {
+                                Button { showComments.toggle() } label: { Label("Comentários", systemImage: "text.bubble") }
+                                Button { Task { if await commit(closing: false) { await store.duplicate(task) } } } label: { Label("Duplicar tarefa", systemImage: "plus.square.on.square") }.disabled(saving || !store.canWrite)
+                                ShareLink(item: ([task.title, task.fields.text("body")] + task.checks.map { ($0.done ? "☑ " : "☐ ") + $0.title }).joined(separator: "\n")) { Label("Compartilhar tarefa", systemImage: "square.and.arrow.up") }
+                                Button { task.fields["status"] = .string(task.status == "archived" ? "todo" : "archived"); save() } label: { Label(task.status == "archived" ? "Desarquivar tarefa" : "Arquivar tarefa", systemImage: "archivebox") }.disabled(saving)
+                                Button(role: .destructive) { trashConfirm = true } label: { Label("Mover para a lixeira", systemImage: "trash") }.disabled(saving)
+                            }
+                        }.disabled(!editable || loading || closing)
                     } label: { Image(systemName: "ellipsis.circle").frame(width: 38, height: 40) }
                         .accessibilityLabel("Opções da lista de subtarefas").disabled(loading || saving)
                     Spacer()
-                    Text(!serverReady || store.offline ? "Somente consulta" : saving ? "Salvando no servidor…" : task == baseline ? "" : "Ainda não salvo").font(.system(size: 11)).foregroundStyle(.secondary)
+                    if let status = syncStatusText { Text(status).font(.system(size: 11)).foregroundStyle(.secondary) }
                 }
             }
             .sheet(isPresented: $installmentGenerator) { NativeInstallmentGenerator(task: $task) }
@@ -132,12 +150,13 @@ struct NativeTaskEditor: View {
             } message: { Text(receiptIssue ?? "") }
             .sheet(isPresented: $remindersOptions) { NativeReminderOptions(fields: $task.fields) }
             .sheet(isPresented: $repetitionOptions) { NativeTaskRepetition(fields: $task.fields) }
-            .sheet(item:$noteViewCheck) { check in NativeSubtaskNoteViewer(title:check.fields.text("text"),text:store.subtaskNote(task.id,check.id).text("text")) }
+            .sheet(item:$noteViewCheck) { check in NativeSubtaskNoteViewer(title:check.fields.text("text"),text:store.subtaskNote(task.id,check.id).text("text"),onEdit: editable ? { editNote(check) } : nil) }
             .sheet(item:$noteCheck) { check in NativeSubtaskNoteEditor(store:store,taskID:task.id,checkID:check.id,title:check.fields.text("text")) }
             .sheet(isPresented:$appearanceOptions) { NativeTaskAppearance(store:store,taskID:task.id) }
             .sheet(item:$appearanceCheck) { check in NativeTaskAppearance(store:store,taskID:task.id,checkID:check.id) }
             .sheet(isPresented: $locationOptions) { NativeTaskLocationSheet(fields: $task.fields, store: store) }
             .sheet(isPresented: $reordering) { reorderSheet }
+            .sheet(isPresented: $detailsSheet) { detailsSheetView }
             .sheet(isPresented: Binding(get: { movingCheck != nil }, set: { if !$0 { movingCheck = nil } })) { transferSheet }
             .sheet(isPresented: $suggestions) { NativeSmartSuggestions(store: store, context: "task", text: task.title, excludeID: task.id) { values in
                 Task { await applySuggestions(values) }
@@ -157,6 +176,33 @@ struct NativeTaskEditor: View {
             .confirmationDialog("Remover subtarefa ao salvar?", isPresented: Binding(get: { removingCheck != nil }, set: { if !$0 { removingCheck = nil } }), titleVisibility: .visible) { Button("Remover subtarefa", role: .destructive) { task.fields["checklist"] = .array(task.checks.filter { $0.id != removingCheck }.map { .object($0.fields) }); removingCheck = nil } }
             .confirmationDialog(task.paused ? "Retomar a cobrança?" : "Por quantos meses deseja pausar?", isPresented: $pauseMenu, titleVisibility: .visible) { if task.paused { Button("Retomar agora") { pause(months: 0, resume: true) } } else { ForEach([1, 2, 3, 6, 12], id: \.self) { months in Button("Pausar \(months) mês(es)") { pause(months: months, resume: false) } } } }
         }
+    }
+    private var syncStatusText: String? { !serverReady || store.offline ? "Somente consulta" : saving ? "Salvando no servidor…" : task == baseline ? nil : "Ainda não salvo" }
+    private func editNote(_ check: NativeRecord) {
+        noteViewCheck = nil
+        Task {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            if !editable { noteCheck = check; return }
+            addCheck(); autosave?.cancel()
+            guard newCheck.isEmpty, await commit(closing: false) else { return }
+            noteCheck = check
+        }
+    }
+    private var detailsSheetView: some View {
+        NavigationStack {
+            Form {
+                NativeDateField(fields: $task.fields, key: "startAt", title: "Início")
+                Toggle("Fixar no início", isOn: flag("pinned"))
+                TextField("Etiquetas, separadas por vírgula", text: Binding(get: { task.tags.joined(separator: ", ") }, set: { task.fields["tags"] = .array($0.split(separator: ",").map { .string($0.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "#", with: "")) }) }))
+                Picker("Atribuir a", selection: text("assignedTo")) {
+                    Text("Ninguém").tag("")
+                    ForEach(store.snapshot.users.map(NativeRecord.init)) { Text($0.fields.text("name")).tag($0.id) }
+                }
+            }
+            .disabled(!editable || loading || closing)
+            .navigationTitle("Mais opções").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Pronto") { detailsSheet = false } } }
+        }.presentationDetents([.medium, .large])
     }
     private var editorList: some View {
         ScrollViewReader { proxy in
@@ -208,29 +254,6 @@ struct NativeTaskEditor: View {
             }.listRowSeparator(.hidden).listRowBackground(Color.clear)
             checklistSection
             if showComments || !comments.isEmpty { commentsSection }
-            Section {
-                DisclosureGroup {
-                    Button("Gerar parcelas ou série") { installmentGenerator = true }.disabled(!editable || saving)
-                    if task.checks.contains(where: task.usesManualPayment) { Button { openPayment() } label: { Label("Pagar / antecipar parcelas", systemImage: "creditcard") }.disabled(!editable || saving || !store.canWrite) }
-                    NativeDateField(fields: $task.fields, key: "startAt", title: "Início")
-                    Toggle("Fixar no início", isOn: flag("pinned"))
-                    TextField("Etiquetas, separadas por vírgula", text: Binding(get: { task.tags.joined(separator: ", ") }, set: { task.fields["tags"] = .array($0.split(separator: ",").map { .string($0.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "#", with: "")) }) }))
-                    Picker("Atribuir a", selection: text("assignedTo")) {
-                        Text("Ninguém").tag("")
-                        ForEach(store.snapshot.users.map(NativeRecord.init)) { Text($0.fields.text("name")).tag($0.id) }
-                    }
-                    if !task.id.isEmpty, task.fields["repeat"]?.object.text("frequency") == "monthly", task.isActive {
-                        Button(task.paused ? "Retomar cobrança" : "Pausar cobrança") { pauseMenu = true }.disabled(!store.canWrite || task != baseline || saving)
-                    }
-                    if !task.id.isEmpty {
-                        Button("Comentários") { showComments.toggle() }
-                        Button("Duplicar tarefa") { Task { if await commit(closing: false) { await store.duplicate(task) } } }.disabled(saving || !store.canWrite)
-                        ShareLink(item: ([task.title, task.fields.text("body")] + task.checks.map { ($0.done ? "☑ " : "☐ ") + $0.title }).joined(separator: "\n")) { Label("Compartilhar tarefa", systemImage: "square.and.arrow.up") }
-                        Button(task.status == "archived" ? "Desarquivar tarefa" : "Arquivar tarefa") { task.fields["status"] = .string(task.status == "archived" ? "todo" : "archived"); save() }.disabled(saving)
-                        Button("Mover para a lixeira", role: .destructive) { trashConfirm = true }.disabled(saving)
-                    }
-                } label: { Text("Mais opções").accessibilityIdentifier("task-more-options") }.font(.system(size: 14))
-            }.disabled(!editable || loading || closing)
             if store.offline || !store.networkAvailable { Text("Sem conexão com o servidor. Somente consulta: não é possível editar ou salvar.").font(.footnote).foregroundStyle(.orange).listRowSeparator(.hidden) }
         }
         .listStyle(.plain).scrollContentBackground(.hidden).background(nativePaper).scrollDismissesKeyboard(.interactively)
@@ -366,7 +389,6 @@ struct NativeTaskEditor: View {
                             .accessibilityLabel("Registrar subtarefa")
                     }
                 }.frame(minHeight: 44)
-                if checks.count > 1 { Button { reordering = true } label: { Label("Reordenar subtarefas", systemImage: "arrow.up.arrow.down") }.font(.system(size: 12)).padding(.vertical, 4) }
             }
         }
     }

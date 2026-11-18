@@ -59,6 +59,14 @@ struct NativeReceiptTarget: Identifiable {
     var title: String { historicalTitle ?? task.checks.first { $0.id == checkID }?.title ?? task.title }
 }
 
+/// Arquivo já preparado para envio. Guardado para reenviar se o usuário confirmar um comprovante repetido.
+struct NativePendingReceipt: Identifiable {
+    let id = UUID()
+    let bytes: Data
+    let name: String
+    let type: String
+}
+
 @MainActor
 struct NativeTaskReceipts: View {
     @ObservedObject var store: NativeStore
@@ -67,7 +75,7 @@ struct NativeTaskReceipts: View {
     var onAttached: () -> Void = {}
     @Environment(\.dismiss) private var dismiss
     @State private var files: [NativeRecord] = []
-    @State private var photo: PhotosPickerItem?
+    @State private var photos: [PhotosPickerItem] = []
     @State private var camera = false
     @State private var importing = false
     @State private var working = false
@@ -75,6 +83,9 @@ struct NativeTaskReceipts: View {
     @State private var issue: String?
     @State private var status = ""
     @State private var preview: URL?
+    @State private var repeatItems: [NativePendingReceipt] = []
+    @State private var repeatMessage = ""
+    @State private var showRepeat = false
     private var editable: Bool { store.canWrite && store.canEdit(target.task) && !working && (target.quickAttach || !loading) }
     var body: some View {
         NavigationStack {
@@ -82,8 +93,8 @@ struct NativeTaskReceipts: View {
                 Section {
                     Text(target.title).font(.headline)
                     if target.quickAttach {
-                        if working { ProgressView("Enviando comprovante…").font(.footnote) }
-                        if !status.isEmpty { Label(status, systemImage: "checkmark.circle").font(.footnote).foregroundStyle(.green) }
+                        if working { ProgressView(status.isEmpty ? "Enviando comprovante…" : status).font(.footnote) }
+                        else if !status.isEmpty { Label(status, systemImage: "checkmark.circle").font(.footnote).foregroundStyle(.green) }
                         if let issue { Text(issue).font(.footnote).foregroundStyle(.red) }
                     }
                     if !target.viewOnly && !target.quickAttach {
@@ -92,11 +103,11 @@ struct NativeTaskReceipts: View {
                 }
                 if !target.viewOnly && (!target.quickAttach || !working) {
                 Section {
-                    PhotosPicker(selection: $photo, matching: .images, preferredItemEncoding: .current) { Label("Escolher foto", systemImage: "photo.on.rectangle") }
-                    Button { importing = true } label: { Label("Escolher PDF ou arquivo", systemImage: "folder") }
+                    PhotosPicker(selection: $photos, maxSelectionCount: 10, matching: .images, preferredItemEncoding: .current) { Label("Escolher fotos", systemImage: "photo.on.rectangle") }
+                    Button { importing = true } label: { Label("Escolher PDFs ou arquivos", systemImage: "folder") }
                     Button { pasteReceipt() } label: { Label("Colar comprovante", systemImage: "doc.on.clipboard") }
                     if UIImagePickerController.isSourceTypeAvailable(.camera) { Button { camera = true } label: { Label("Tirar foto", systemImage: "camera") } }
-                }.disabled(!editable)
+                } footer: { if target.quickAttach { Text("Você pode escolher vários arquivos de uma vez. O mesmo comprovante também pode ser anexado em outra parcela.") } }.disabled(!editable)
                 }
                 if !target.quickAttach {
                 Section("Comprovantes deste item") {
@@ -113,8 +124,8 @@ struct NativeTaskReceipts: View {
                 }
                 }
                 if !target.quickAttach {
-                    if working { ProgressView("Enviando comprovante…") }
-                    if !status.isEmpty { Label(status, systemImage: "checkmark.circle").font(.footnote).foregroundStyle(.green) }
+                    if working { ProgressView(status.isEmpty ? "Enviando comprovante…" : status) }
+                    else if !status.isEmpty { Label(status, systemImage: "checkmark.circle").font(.footnote).foregroundStyle(.green) }
                     if let issue { Text(issue).font(.footnote).foregroundStyle(.red) }
                 }
                 if !target.viewOnly && !target.quickAttach {
@@ -135,26 +146,41 @@ struct NativeTaskReceipts: View {
                         if let image { uploadImage(image) }
                     }.ignoresSafeArea()
                 }
-                .fileImporter(isPresented: $importing, allowedContentTypes: [.image, .pdf, .data]) { result in importFile(result) }
-                .onChange(of: photo) { selection in
-                    guard let selection else { return }
+                .fileImporter(isPresented: $importing, allowedContentTypes: [.image, .pdf, .data], allowsMultipleSelection: true) { result in importFiles(result) }
+                .alert("Comprovante repetido", isPresented: $showRepeat) {
+                    Button("Anexar mesmo assim") {
+                        let items = repeatItems
+                        repeatItems = []
+                        guard !working else { return }
+                        working = true; issue = nil
+                        Task { defer { working = false }; await uploadBatch(items, allowRepeat: true) }
+                    }
+                    Button("Não anexar", role: .cancel) { repeatItems = [] }
+                } message: { Text(repeatMessage + " Se este comprovante vale para mais de uma parcela, anexe também aqui.") }
+                .onChange(of: photos) { selection in
+                    guard !selection.isEmpty else { return }
                     working = true; issue = nil; status = ""
                     Task {
-                        defer { working = false; photo = nil }
+                        defer { working = false; photos = [] }
+                        var batch: [NativePendingReceipt] = []
                         do {
-                            guard let data = try await selection.loadTransferable(type: Data.self), let image = UIImage(data: data) else { throw NativeFailure("Não foi possível ler esta foto. Tente escolher a imagem em Arquivos.") }
-                            let source = CGImageSourceCreateWithData(data as CFData, nil)
-                            let type = source.flatMap { CGImageSourceGetType($0) as String? }.flatMap { UTType($0) }
-                            if data.count <= 2_097_152, let mime = type?.preferredMIMEType, let ext = type?.preferredFilenameExtension {
-                                try await upload(data, name: "Comprovante-\(Int(Date().timeIntervalSince1970))." + ext, type: mime)
-                            } else {
-                                try await upload(NativeImage.receipt(image), name: "Comprovante-\(Int(Date().timeIntervalSince1970)).jpg", type: "image/jpeg")
+                            for (index, item) in selection.enumerated() {
+                                guard let data = try await item.loadTransferable(type: Data.self), let image = UIImage(data: data) else { throw NativeFailure("Não foi possível ler esta foto. Tente escolher a imagem em Arquivos.") }
+                                let stamp = Int(Date().timeIntervalSince1970) + index
+                                let source = CGImageSourceCreateWithData(data as CFData, nil)
+                                let type = source.flatMap { CGImageSourceGetType($0) as String? }.flatMap { UTType($0) }
+                                if data.count <= 2_097_152, let mime = type?.preferredMIMEType, let ext = type?.preferredFilenameExtension {
+                                    batch.append(NativePendingReceipt(bytes: data, name: "Comprovante-\(stamp)." + ext, type: mime))
+                                } else {
+                                    batch.append(NativePendingReceipt(bytes: NativeImage.receipt(image), name: "Comprovante-\(stamp).jpg", type: "image/jpeg"))
+                                }
                             }
+                            await uploadBatch(batch)
                         } catch { issue = error.localizedDescription }
                     }
                 }
         }
-        .presentationDetents(target.quickAttach ? [.height(360), .large] : [.medium, .large])
+        .presentationDetents(target.quickAttach ? [.height(400), .large] : [.medium, .large])
         .presentationDragIndicator(.visible)
     }
     @discardableResult private func load() async -> Bool {
@@ -171,26 +197,49 @@ struct NativeTaskReceipts: View {
             return true
         } catch { issue = error.localizedDescription; return false }
     }
-    private func upload(_ bytes: Data, name: String, type: String) async throws {
+    /// Envia um arquivo. `allowRepeat` só é usado depois que o usuário confirmou um comprovante repetido.
+    private func upload(_ item: NativePendingReceipt, allowRepeat: Bool) async throws {
         guard store.canWrite else { throw NativeFailure("Sem conexão com o servidor. Atualize antes de anexar.") }
-        guard !bytes.isEmpty, bytes.count <= 2_097_152 else { throw NativeFailure("Escolha um arquivo de até 2 MB.") }
-        var payload: JSONObject = ["itemId": .string(target.task.id), "checkId": .string(target.checkID), "name": .string(name), "type": .string(type), "base64": .string(bytes.base64EncodedString())]
+        guard !item.bytes.isEmpty, item.bytes.count <= 2_097_152 else { throw NativeFailure("Escolha um arquivo de até 2 MB.") }
+        var payload: JSONObject = ["itemId": .string(target.task.id), "checkId": .string(target.checkID), "name": .string(item.name), "type": .string(item.type), "base64": .string(item.bytes.base64EncodedString())]
         if let id = target.paymentID { payload["paymentId"] = .string(id) }
+        if allowRepeat { payload["allowRepeat"] = .bool(true) }
         let confirmDestination = target.quickAttach && (target.task.isActive || target.task.isDone)
         if confirmDestination { payload["revision"] = .number(Double(target.task.revision)) }
         _ = try await store.mutate(confirmDestination ? "org_attach_receipt" : "org_attach", payload)
-        status = "Comprovante salvo no servidor."
-        let refreshed = await load()
-        onAttached()
-        if target.quickAttach && refreshed { dismiss() }
+    }
+    /// Envia vários arquivos em sequência. Repetidos viram uma pergunta; os demais seguem normalmente.
+    private func uploadBatch(_ items: [NativePendingReceipt], allowRepeat: Bool = false) async {
+        var saved = 0
+        var repeats: [NativePendingReceipt] = []
+        var firstRepeat = ""
+        var failures: [String] = []
+        for (index, item) in items.enumerated() {
+            if items.count > 1 { status = "Enviando \(index + 1) de \(items.count)…" }
+            do { try await upload(item, allowRepeat: allowRepeat); saved += 1 }
+            catch {
+                let message = error.localizedDescription
+                if message.hasPrefix("Comprovante repetido.") { repeats.append(item); if firstRepeat.isEmpty { firstRepeat = message } }
+                else { failures.append(message) }
+            }
+        }
+        status = saved == 0 ? "" : saved > 1 ? "\(saved) comprovantes salvos no servidor." : "Comprovante salvo no servidor."
+        let refreshed = saved > 0 ? await load() : true
+        if saved > 0 { onAttached() }
+        if !failures.isEmpty { issue = failures.joined(separator: "\n") }
+        if !repeats.isEmpty {
+            repeatItems = repeats
+            repeatMessage = repeats.count > 1 ? "\(repeats.count) arquivos já estão anexados em outro lugar. Primeiro aviso: " + firstRepeat : firstRepeat
+            showRepeat = true
+        }
+        if target.quickAttach && refreshed && saved > 0 && failures.isEmpty && repeats.isEmpty { dismiss() }
     }
     private func uploadImage(_ image: UIImage) {
         guard !working else { return }
         working = true; issue = nil; status = ""
         Task {
             defer { working = false }
-            do { try await upload(NativeImage.receipt(image), name: "Comprovante-\(Int(Date().timeIntervalSince1970)).jpg", type: "image/jpeg") }
-            catch { issue = error.localizedDescription }
+            await uploadBatch([NativePendingReceipt(bytes: NativeImage.receipt(image), name: "Comprovante-\(Int(Date().timeIntervalSince1970)).jpg", type: "image/jpeg")])
         }
     }
     private func pasteReceipt() {
@@ -206,35 +255,40 @@ struct NativeTaskReceipts: View {
             working = true; issue = nil; status = ""
             Task {
                 defer { working = false }
-                do { try await upload(data, name: "Comprovante-\(Int(Date().timeIntervalSince1970))." + ext, type: mime) }
-                catch { issue = error.localizedDescription }
+                await uploadBatch([NativePendingReceipt(bytes: data, name: "Comprovante-\(Int(Date().timeIntervalSince1970))." + ext, type: mime)])
             }
         } else if let url = clipboard.url, url.isFileURL {
-            importFile(.success(url))
+            importFiles(.success([url]))
         } else if let image = clipboard.image {
             uploadImage(image)
         } else {
             issue = "Copie uma imagem ou um PDF e toque em Colar comprovante. Você também pode escolher o arquivo."
         }
     }
-    private func importFile(_ result: Result<URL, Error>) {
-        guard case .success(let url) = result else {
+    private func prepare(_ url: URL) throws -> NativePendingReceipt {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let type = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+        let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        guard size <= (type.hasPrefix("image/") ? 30_000_000 : 2_097_152) else { throw NativeFailure("“\(url.lastPathComponent)” é muito grande. PDFs podem ter até 2 MB.") }
+        let bytes = try Data(contentsOf: url)
+        if bytes.count > 2_097_152, type.hasPrefix("image/"), let image = UIImage(data: bytes) {
+            return NativePendingReceipt(bytes: NativeImage.receipt(image), name: url.deletingPathExtension().lastPathComponent + ".jpg", type: "image/jpeg")
+        }
+        return NativePendingReceipt(bytes: bytes, name: url.lastPathComponent, type: type)
+    }
+    private func importFiles(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result else {
             if case .failure(let error) = result, (error as NSError).code != NSUserCancelledError { issue = error.localizedDescription }
             return
         }
-        guard !working else { return }
+        guard !working, !urls.isEmpty else { return }
         working = true; issue = nil; status = ""
         Task {
             defer { working = false }
             do {
-                let scoped = url.startAccessingSecurityScopedResource()
-                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                let type = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
-                let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-                guard size <= (type.hasPrefix("image/") ? 30_000_000 : 2_097_152) else { throw NativeFailure("O arquivo é muito grande. PDFs podem ter até 2 MB.") }
-                let bytes = try Data(contentsOf: url)
-                if bytes.count > 2_097_152, type.hasPrefix("image/"), let image = UIImage(data: bytes) { try await upload(NativeImage.receipt(image), name: url.deletingPathExtension().lastPathComponent + ".jpg", type: "image/jpeg") }
-                else { try await upload(bytes, name: url.lastPathComponent, type: type) }
+                let items = try urls.map(prepare)
+                await uploadBatch(items)
             } catch { issue = error.localizedDescription }
         }
     }

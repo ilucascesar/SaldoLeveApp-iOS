@@ -1,45 +1,104 @@
 import SwiftUI
 
 /// UITextView somente leitura: permite selecionar e copiar trechos do texto.
+/// `selection` devolve o trecho escolhido, para o botão copiar só aquela parte.
 struct NativeSelectableText: UIViewRepresentable {
     let text: String
+    @Binding var selection: String
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView()
         view.isEditable = false; view.isSelectable = true; view.isScrollEnabled = true
         view.backgroundColor = .clear
-        view.font = UIFont.preferredFont(forTextStyle: .body)
         view.adjustsFontForContentSizeCategory = true
-        view.textContainerInset = UIEdgeInsets(top: 12, left: 8, bottom: 12, right: 8)
-        view.text = text
+        view.textContainerInset = UIEdgeInsets(top: 16, left: 14, bottom: 16, right: 14)
+        view.tintColor = UIColor(nativeBlue)
+        view.delegate = context.coordinator
+        view.attributedText = Self.styled(text)
         return view
     }
-    func updateUIView(_ view: UITextView, context: Context) { if view.text != text { view.text = text } }
+    func updateUIView(_ view: UITextView, context: Context) {
+        context.coordinator.parent = self
+        if view.attributedText.string != text { view.attributedText = Self.styled(text) }
+    }
+    private static func styled(_ text: String) -> NSAttributedString {
+        let style = NSMutableParagraphStyle(); style.lineSpacing = 4
+        return NSAttributedString(string: text, attributes: [
+            .font: UIFont.preferredFont(forTextStyle: .body),
+            .foregroundColor: UIColor.label,
+            .paragraphStyle: style
+        ])
+    }
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var parent: NativeSelectableText
+        init(_ parent: NativeSelectableText) { self.parent = parent }
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            let range = textView.selectedRange
+            // Ao tocar num botão a seleção visual some; mantemos o último trecho escolhido.
+            if range.length == 0 && !textView.isFirstResponder { return }
+            let value = range.length > 0 ? (textView.text as NSString).substring(with: range) : ""
+            if value != parent.selection { DispatchQueue.main.async { self.parent.selection = value } }
+        }
+    }
 }
 
-/// Balão de leitura da observação: ver, selecionar e copiar. A edição fica no menu da subtarefa.
+/// Cartão de leitura da observação: ler, selecionar um trecho ou copiar tudo, com atalho para editar.
 struct NativeSubtaskNoteViewer: View {
     let title: String
     let text: String
+    var onEdit: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var copied = false
+    @State private var selection = ""
+    private var copyTitle: String {
+        if copied { return selection.isEmpty ? "Copiado" : "Trecho copiado" }
+        return selection.isEmpty ? "Copiar tudo" : "Copiar trecho"
+    }
     var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 8) {
-                if !title.isEmpty { Text(title).font(.headline).padding(.horizontal, 16).padding(.top, 8) }
-                NativeSelectableText(text: text)
-                    .background(RoundedRectangle(cornerRadius: 14).fill(Color(.secondarySystemBackground)))
-                    .padding(.horizontal, 12)
-                Text("Toque e segure para selecionar trechos. Para editar, use os três pontos da subtarefa.")
-                    .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 16).padding(.bottom, 8)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                Image(systemName: "text.bubble.fill").font(.system(size: 17)).foregroundStyle(nativeBlue)
+                    .frame(width: 38, height: 38).background(Circle().fill(nativeBlue.opacity(0.12)))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Observação").font(.headline)
+                    if !title.isEmpty { Text(title).font(.subheadline).foregroundStyle(.secondary).lineLimit(1) }
+                }
+                Spacer(minLength: 8)
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark.circle.fill").font(.title2).symbolRenderingMode(.hierarchical).foregroundStyle(.secondary)
+                }.accessibilityLabel("Fechar")
             }
-            .navigationTitle("Observação").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(copied ? "Copiado" : "Copiar tudo") { UIPasteboard.general.string = text; copied = true }
+            NativeSelectableText(text: text, selection: $selection)
+                .frame(minHeight: 120, maxHeight: .infinity)
+                .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color(.secondarySystemBackground)))
+                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.primary.opacity(0.06)))
+            HStack(spacing: 10) {
+                Button(action: copy) {
+                    Label(copyTitle, systemImage: copied ? "checkmark" : "doc.on.doc").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.large)
+                .tint(copied ? .green : nativeBlue)
+                if let onEdit {
+                    Button(action: onEdit) { Label("Editar", systemImage: "pencil").frame(maxWidth: .infinity) }
+                        .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.large).tint(nativeBlue)
                 }
             }
-        }.presentationDetents([.medium, .large])
+            Text("Segure e arraste no texto para copiar só um trecho.")
+                .font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .center)
+        }
+        .padding(.horizontal, 16).padding(.top, 20).padding(.bottom, 12)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(28)
+    }
+    private func copy() {
+        UIPasteboard.general.string = selection.isEmpty ? text : selection
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        withAnimation(.easeInOut(duration: 0.2)) { copied = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            withAnimation(.easeInOut(duration: 0.2)) { copied = false }
+            selection = ""
+        }
     }
 }
 
