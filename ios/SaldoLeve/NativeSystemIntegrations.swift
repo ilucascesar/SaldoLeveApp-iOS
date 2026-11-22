@@ -231,6 +231,7 @@ struct NativeGeofenceAlert: Codable, Equatable {
         let content = UNMutableNotificationContent()
         content.title = title; content.body = body; content.sound = sound ? .default : nil
         content.threadIdentifier = "sl-task-location"; content.userInfo = ["taskID": taskID]
+        content.categoryIdentifier = NativeReminderActions.snoozeCategory
         return content
     }
     static func make(_ group: NativeLocationReminder.Group, preferences: NativeNotificationPreferences) -> NativeGeofenceAlert {

@@ -15,6 +15,7 @@ final class NativeReminders: NSObject, UNUserNotificationCenterDelegate {
     private var lastSnapshot = NativeSnapshot()
     override init() {
         super.init(); center.delegate = self
+        NativeReminderActions.register(center)
         NotificationCenter.default.addObserver(forName: .nativeLocationAuthorizationChanged, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in guard let self, self.places != nil else { return }; self.update(self.lastSnapshot) }
         }
@@ -97,6 +98,7 @@ final class NativeReminders: NSObject, UNUserNotificationCenterDelegate {
                 content.threadIdentifier = "sl-task-" + reminder.taskID
                 if preferences.badge { content.badge = NSNumber(value: computation.0.prefix { $0 <= reminder.date }.count) }
                 content.userInfo = ["taskID": reminder.taskID]
+                content.categoryIdentifier = NativeReminderActions.category(for: reminder.taskID)
                 if let checkID = reminder.checkID { content.userInfo["checkID"] = checkID }
                 let interval = max(1, reminder.date.timeIntervalSinceNow)
                 try? await center.add(UNNotificationRequest(identifier: reminder.id, content: content,
@@ -133,6 +135,71 @@ final class NativeReminders: NSObject, UNUserNotificationCenterDelegate {
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
         let id = response.notification.request.content.userInfo["taskID"] as? String
         let checkID = response.notification.request.content.userInfo["checkID"] as? String
+        let action = response.actionIdentifier
+        if let delay = NativeReminderActions.snoozeDate(for: action) {
+            // Adiar: o mesmo aviso volta no horário escolhido. O prefixo é outro
+            // (sl-snooze-) para a reconstrução dos avisos não apagá-lo.
+            let content = (response.notification.request.content.mutableCopy() as? UNMutableNotificationContent) ?? UNMutableNotificationContent()
+            content.badge = nil
+            let request = UNNotificationRequest(identifier: "sl-snooze-" + UUID().uuidString, content: content,
+                                                trigger: UNTimeIntervalNotificationTrigger(timeInterval: max(60, delay.timeIntervalSinceNow), repeats: false))
+            center.add(request) { _ in completionHandler() }
+            return
+        }
+        if action == NativeReminderActions.done, let id {
+            Task { @MainActor in await NativeReminderActions.markDone(taskID: id, checkID: checkID); completionHandler() }
+            return
+        }
+        guard action == UNNotificationDefaultActionIdentifier else { completionHandler(); return }
         Task { @MainActor [weak self] in if let id { self?.onOpen?(id,checkID) }; completionHandler() }
+    }
+}
+
+// Ações ao segurar ou arrastar um aviso para baixo: adiar ou marcar como feito.
+enum NativeReminderActions {
+    static let taskCategory = "sl.reminder.task", snoozeCategory = "sl.reminder.snooze"
+    static let done = "sl.action.done"
+    private static let hours: [(String, String, Int)] = [("sl.action.snooze2", "Lembrar em 2 horas", 2), ("sl.action.snooze4", "Lembrar em 4 horas", 4),
+                                                         ("sl.action.snooze6", "Lembrar em 6 horas", 6), ("sl.action.snooze8", "Lembrar em 8 horas", 8)]
+    static let tomorrow = "sl.action.tomorrow"
+    static func category(for taskID: String) -> String {
+        taskID.isEmpty || taskID.contains(":") ? snoozeCategory : taskCategory
+    }
+    static func register(_ center: UNUserNotificationCenter) {
+        var snooze = hours.prefix(2).map { UNNotificationAction(identifier: $0.0, title: $0.1, options: []) }
+        snooze.append(UNNotificationAction(identifier: tomorrow, title: "Lembrar amanhã", options: []))
+        snooze += hours.dropFirst(2).map { UNNotificationAction(identifier: $0.0, title: $0.1, options: []) }
+        let finished = UNNotificationAction(identifier: done, title: "Marcar como feito", options: [])
+        center.setNotificationCategories([
+            UNNotificationCategory(identifier: taskCategory, actions: [finished] + snooze, intentIdentifiers: [], options: []),
+            UNNotificationCategory(identifier: snoozeCategory, actions: snooze, intentIdentifiers: [], options: [])
+        ])
+    }
+    static func snoozeDate(for action: String, now: Date = Date()) -> Date? {
+        if let hour = hours.first(where: { $0.0 == action }) { return now.addingTimeInterval(Double(hour.2) * 3600) }
+        guard action == tomorrow else { return nil }
+        let calendar = Calendar.current
+        let day = calendar.date(byAdding: .day, value: 1, to: now) ?? now.addingTimeInterval(86400)
+        return calendar.date(bySettingHour: 8, minute: 0, second: 0, of: day) ?? day
+    }
+    @MainActor static func markDone(taskID: String, checkID: String?) async {
+        let store = NativeStore.shared
+        await store.ensureStarted()
+        guard store.user != nil else { return await warn("Entre na sua conta no SaldoLeve para concluir pelo aviso.") }
+        if !store.canWrite { await store.refresh() }
+        guard store.canWrite, let task = store.taskByID(taskID) else { return await warn("Sem conexão com o servidor. Abra o app para concluir.") }
+        if let checkID, let check = task.checks.first(where: { $0.id == checkID }) {
+            if !check.done { await store.toggle(check, task: task) }
+            if store.taskByID(taskID)?.checks.first(where: { $0.id == checkID })?.done != true { await warn("Não deu para concluir daqui. Abra o app para concluir.") }
+        } else if !task.isDone {
+            await store.complete(task)
+            if store.taskByID(taskID)?.isDone != true { await warn("Não deu para concluir daqui (talvez peça um valor ou senha). Abra o app.") }
+        }
+    }
+    private static func warn(_ text: String) async {
+        let content = UNMutableNotificationContent()
+        content.title = "SaldoLeve"; content.body = text; content.sound = .default
+        try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "sl-action-warning", content: content,
+                                                                                trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)))
     }
 }
