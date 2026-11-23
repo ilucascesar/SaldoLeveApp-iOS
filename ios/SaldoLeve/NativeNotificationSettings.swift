@@ -17,7 +17,10 @@ struct NativeNotificationSettings: View {
     @Environment(\.scenePhase) private var scenePhase
     var body: some View {
         Form {
-            Section { NavigationLink("Lembretes avulsos") { NativeStandaloneReminders(store: store) } }
+            Section {
+                NavigationLink("Lembretes avulsos") { NativeStandaloneReminders(store: store) }
+                NavigationLink("Opções de adiar do aviso") { NativeSnoozeSettings() }
+            }
             Section {
                 Toggle("Notificações neste iPhone", isOn: Binding(get: { enabled }, set: setEnabled)).disabled(requesting)
                 LabeledContent("Permissão do iOS", value: status)

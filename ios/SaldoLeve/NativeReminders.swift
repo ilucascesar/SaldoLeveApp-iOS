@@ -159,16 +159,12 @@ final class NativeReminders: NSObject, UNUserNotificationCenterDelegate {
 enum NativeReminderActions {
     static let taskCategory = "sl.reminder.task", snoozeCategory = "sl.reminder.snooze"
     static let done = "sl.action.done"
-    private static let hours: [(String, String, Int)] = [("sl.action.snooze2", "Lembrar em 2 horas", 2), ("sl.action.snooze4", "Lembrar em 4 horas", 4),
-                                                         ("sl.action.snooze6", "Lembrar em 6 horas", 6), ("sl.action.snooze8", "Lembrar em 8 horas", 8)]
-    static let tomorrow = "sl.action.tomorrow"
     static func category(for taskID: String) -> String {
         taskID.isEmpty || taskID.contains(":") ? snoozeCategory : taskCategory
     }
+    // As opções vêm de Opções de adiar do aviso (até 5, escolhidas pelo usuário).
     static func register(_ center: UNUserNotificationCenter) {
-        var snooze = hours.prefix(2).map { UNNotificationAction(identifier: $0.0, title: $0.1, options: []) }
-        snooze.append(UNNotificationAction(identifier: tomorrow, title: "Lembrar amanhã", options: []))
-        snooze += hours.dropFirst(2).map { UNNotificationAction(identifier: $0.0, title: $0.1, options: []) }
+        let snooze = NativeSnoozeStore.read().map { UNNotificationAction(identifier: $0.actionID, title: $0.title, options: []) }
         let finished = UNNotificationAction(identifier: done, title: "Marcar como feito", options: [])
         center.setNotificationCategories([
             UNNotificationCategory(identifier: taskCategory, actions: [finished] + snooze, intentIdentifiers: [], options: []),
@@ -176,11 +172,12 @@ enum NativeReminderActions {
         ])
     }
     static func snoozeDate(for action: String, now: Date = Date()) -> Date? {
-        if let hour = hours.first(where: { $0.0 == action }) { return now.addingTimeInterval(Double(hour.2) * 3600) }
-        guard action == tomorrow else { return nil }
-        let calendar = Calendar.current
-        let day = calendar.date(byAdding: .day, value: 1, to: now) ?? now.addingTimeInterval(86400)
-        return calendar.date(bySettingHour: 8, minute: 0, second: 0, of: day) ?? day
+        if let option = NativeSnoozeOption.parse(action: action) { return option.fireDate(from: now) }
+        // Botões de avisos já entregues pela 1.0.6.
+        let legacy: [String: NativeSnoozeOption] = ["sl.action.snooze2": .init(amount: 2, unit: .hours), "sl.action.snooze4": .init(amount: 4, unit: .hours),
+                                                    "sl.action.snooze6": .init(amount: 6, unit: .hours), "sl.action.snooze8": .init(amount: 8, unit: .hours),
+                                                    "sl.action.tomorrow": .init(amount: 1, unit: .days)]
+        return legacy[action]?.fireDate(from: now)
     }
     @MainActor static func markDone(taskID: String, checkID: String?) async {
         let store = NativeStore.shared
