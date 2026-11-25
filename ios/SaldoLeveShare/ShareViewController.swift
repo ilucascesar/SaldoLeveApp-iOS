@@ -85,13 +85,20 @@ private struct ReceiptDestination {
     @State private var working = false
     @State private var started = false
     @State private var uploadUnconfirmed = false
+    @State private var mode = ""
     @State private var issue: String?
+
+    private var isPDF: Bool { receipt?.type == "application/pdf" }
 
     var body: some View {
         NavigationStack {
             Form {
-                if let receipt { Section { Label(receipt.name, systemImage: "paperclip").lineLimit(2) } }
+                if let receipt, mode != "invoice" { Section { Label(receipt.name, systemImage: "paperclip").lineLimit(2) } }
                 if let attached { afterAttachment(attached) }
+                else if mode == "invoice", let api, let receipt {
+                    NativeInvoiceFlow(api: api, fileData: receipt.data, fileName: receipt.name) { context.completeRequest(returningItems: nil) }
+                }
+                else if isPDF && account != nil && mode.isEmpty && selection == nil && task == nil { modeChoice }
                 else if let selection { destinationReview(selection) }
                 else if let task { checklist(task) }
                 else if let account { taskPicker(account) }
@@ -101,7 +108,7 @@ private struct ReceiptDestination {
                 if let issue { Text(issue).foregroundStyle(.red) }
             }
             .disabled(working)
-            .navigationTitle("Anexar comprovante")
+            .navigationTitle(mode == "invoice" ? "Lançar fatura" : "Anexar comprovante")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -126,6 +133,14 @@ private struct ReceiptDestination {
             Button(changingPassword ? "Salvar senha e entrar" : "Entrar") { signIn() }
                 .disabled(password.isEmpty || (!changingPassword && username.trimmingCharacters(in: .whitespaces).isEmpty))
             Text("O primeiro acesso salva sua sessão para os próximos compartilhamentos.").font(.footnote).foregroundStyle(.secondary)
+        }
+    }
+
+    private var modeChoice: some View {
+        Section("O que fazer com este PDF?") {
+            Button { mode = "invoice"; issue = nil } label: { Label("Lançar fatura de cartão", systemImage: "creditcard") }
+            Button { mode = "task"; issue = nil } label: { Label("Anexar a uma tarefa", systemImage: "paperclip") }
+            Text("Lançar fatura lê o PDF e registra só o estudo da fatura, sem alterar valores.").font(.footnote).foregroundStyle(.secondary)
         }
     }
 
@@ -216,7 +231,7 @@ private struct ReceiptDestination {
 
     private func prepare() {
         run {
-            if receipt == nil { receipt = try await SharedReceipt.read(from: context) }
+            if receipt == nil { receipt = try await SharedReceipt.read(from: context, pdfLimit: SharedReceipt.invoiceMaxBytes) }
             let config = Bundle.main.url(forResource: "config", withExtension: "json")
             guard let config, let fields = try? JSONDecoder().decode(JSONObject.self, from: Data(contentsOf: config)),
                   let address = SiteAddress(fields.text("serverURL")) else { throw NativeFailure("O endereço do SaldoLeve não está configurado.") }
@@ -289,6 +304,7 @@ private struct ReceiptDestination {
 
     private func upload(_ destination: ReceiptDestination) {
         guard let api, let receipt else { return }
+        guard receipt.data.count <= SharedReceipt.maxBytes else { issue = "O PDF pode ter até 2 MB para anexar a uma tarefa."; return }
         run {
             do {
                 uploadUnconfirmed = true

@@ -70,6 +70,8 @@ struct NativeFinanceScreen: View {
                 Button("Configurações") { route = .init(kind: "settings") }
                 Button("Próximas faturas") { route = .init(kind: "future") }
                 Button("Meses fechados") { route = .init(kind: "closures") }
+                Button("Lançar fatura (PDF)") { route = .init(kind: "invoiceFlow") }
+                Button("Panorama das faturas") { route = .init(kind: "panorama") }
                 Button("Informar renda") { route = .init(kind: "income") }
                 Button("Fechar mês") { route = .init(kind: "close") }
                 Button("Exportar lançamentos CSV") { export("lancamentos") }

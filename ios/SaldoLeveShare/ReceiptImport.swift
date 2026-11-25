@@ -6,9 +6,11 @@ struct SharedReceipt {
     let name: String
     let type: String
     let data: Data
-    private static let maxBytes = 2_097_152
+    static let maxBytes = 2_097_152
+    /// Faturas de cartão em PDF são maiores que comprovantes; o limite de 2 MB continua valendo para anexar.
+    static let invoiceMaxBytes = 15 * 1_048_576
 
-    static func read(from context: NSExtensionContext) async throws -> SharedReceipt {
+    static func read(from context: NSExtensionContext, pdfLimit: Int = maxBytes) async throws -> SharedReceipt {
         let providers = context.inputItems.compactMap { $0 as? NSExtensionItem }.flatMap { $0.attachments ?? [] }
         let files = providers.compactMap { provider -> (NSItemProvider, UTType)? in
             let supported = [UTType.pdf, .image, .fileURL]
@@ -27,7 +29,7 @@ struct SharedReceipt {
                     continuation.resume(with: Result {
                         if let error { throw error }
                         guard let url = item as? URL, url.isFileURL else { throw NativeFailure("O aplicativo de origem não enviou um arquivo.") }
-                        return try readFile(at: url, suggestedName: provider.suggestedName)
+                        return try readFile(at: url, suggestedName: provider.suggestedName, pdfLimit: pdfLimit)
                     })
                 }
             } else {
@@ -36,14 +38,14 @@ struct SharedReceipt {
                     continuation.resume(with: Result {
                         if let error { throw error }
                         guard let url else { throw NativeFailure("Não foi possível ler o comprovante compartilhado.") }
-                        return try readFile(at: url, suggestedName: provider.suggestedName)
+                        return try readFile(at: url, suggestedName: provider.suggestedName, pdfLimit: pdfLimit)
                     })
                 }
             }
         }
     }
 
-    static func readFile(at url: URL, suggestedName: String?) throws -> SharedReceipt {
+    static func readFile(at url: URL, suggestedName: String?, pdfLimit: Int = maxBytes) throws -> SharedReceipt {
         let accessed = url.startAccessingSecurityScopedResource()
         defer { if accessed { url.stopAccessingSecurityScopedResource() } }
         let file = try FileHandle(forReadingFrom: url)
@@ -54,8 +56,8 @@ struct SharedReceipt {
         let name = String((stem.isEmpty ? "Comprovante" : stem).prefix(165))
         if header.range(of: Data("%PDF-".utf8)) != nil {
             try file.seek(toOffset: 0)
-            guard let bytes = try file.read(upToCount: maxBytes + 1), bytes.count <= maxBytes else {
-                throw NativeFailure("O PDF pode ter até 2 MB.")
+            guard let bytes = try file.read(upToCount: pdfLimit + 1), bytes.count <= pdfLimit else {
+                throw NativeFailure(pdfLimit > maxBytes ? "O PDF pode ter até 15 MB." : "O PDF pode ter até 2 MB.")
             }
             return SharedReceipt(name: name + ".pdf", type: "application/pdf", data: bytes)
         }

@@ -24,6 +24,8 @@ struct NativeFinanceModal: View {
         case "transactionDetail": NativeTransactionDetail(finance: finance, original: route.fields)
         case "future": NativeFutureInvoices(finance: finance, expenseID: route.fields.text("id"))
         case "closures": NativeFinanceClosures(finance: finance)
+        case "invoiceFlow": NativeInvoiceFlowSheet(finance: finance, cardID: route.fields.text("id"))
+        case "panorama": NativeInvoicePanorama(finance: finance)
         case "reminders": NativeExpenseReminders(finance: finance, expenseID: route.fields.text("id"))
         case "payments": NativeExpensePayments(finance: finance, expenseID: route.fields.text("id"))
         case "previewNotifications": NativeSettingsView(store: finance.parent, initialPage: .notifications)
@@ -53,6 +55,7 @@ struct NativeFinanceExpenseDetail: View {
                         LabeledContent("Parcelas", value: NativeFinanceFormat.money(calculation.decimal("installments")))
                         LabeledContent("Outros gastos", value: data.invoice(expenseID).map { NativeFinanceFormat.money(max(0, $0.decimal("total") - calculation.decimal("installments"))) } ?? "—")
                         Button("Informar ou atualizar fatura") { route = .init(kind: "invoice", fields: expense) }.disabled(!finance.canWrite)
+                        Button("Lançar fatura (PDF)") { route = .init(kind: "invoiceFlow", fields: expense) }.disabled(!finance.canWrite)
                     }
                 }
                 if !data.active.record("paymentChanges").record(expenseID).isEmpty {
