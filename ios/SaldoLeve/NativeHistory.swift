@@ -16,33 +16,9 @@ struct NativeHistoryView: View {
     @State private var editing: NativeRecord?
     @State private var deleting: NativeRecord?
     @State private var receipt: NativeReceiptTarget?
-    @State private var people: [NativeRecord] = []
-    @State private var summaryTotal = 0
-    @State private var summaryCents = 0
     var body: some View {
         NavigationStack {
             List {
-                if !people.isEmpty {
-                    Section {
-                        ForEach(Array(people.enumerated()), id: \.offset) { _, person in
-                            let count = person.fields.integer("count")
-                            let duplicates = person.fields.integer("duplicates")
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack {
-                                    Text(person.fields.text("title")).font(.headline)
-                                    Spacer()
-                                    Text(count == 1 ? "1 vez" : "\(count) vezes").font(.subheadline.bold())
-                                }
-                                Text(personDetail(person)).font(.caption).foregroundStyle(.secondary)
-                                if duplicates > 0 {
-                                    Text("\(duplicates) registro\(duplicates == 1 ? "" : "s") no mesmo mês não \(duplicates == 1 ? "foi contado" : "foram contados"). Confira abaixo e exclua o que foi marcado sem querer.").font(.caption).foregroundStyle(.orange)
-                                }
-                            }.padding(.vertical, 4)
-                        }
-                    } header: { Text("Acompanhamento por pessoa") } footer: {
-                        Text("Conta no máximo um pagamento por pessoa por mês, pelo mês do vencimento. \(summaryTotal) no total" + (summaryCents > 0 ? " · " + NativeDate.money(Double(summaryCents)) : "") + ".")
-                    }
-                }
                 if records.isEmpty && !loading { Text("Nenhum pagamento ou conclusão registrado.").foregroundStyle(.secondary) }
                 ForEach(records) { record in
                     VStack(alignment: .leading, spacing: 8) {
@@ -110,23 +86,7 @@ struct NativeHistoryView: View {
             records += data.objects("entries").map(NativeRecord.init)
             more = data.flag("hasMore"); offset = data.integer("nextOffset")
             taskRevision = data.integer("taskRevision"); editable = data.flag("canEdit")
-            if reset {
-                let summary = data.record("summary")
-                people = summary.objects("people").map(NativeRecord.init)
-                summaryTotal = summary.integer("totalCount"); summaryCents = summary.integer("totalCents")
-            }
         } catch { self.error = error.localizedDescription }
-    }
-    private func personDetail(_ person: NativeRecord) -> String {
-        func month(_ key: String) -> String {
-            let parts = key.split(separator: "-")
-            return parts.count == 2 ? "\(parts[1])/\(parts[0])" : ""
-        }
-        var text = person.fields.integer("count") > 0
-            ? "desde \(month(person.fields.text("firstMonth"))) · último mês pago \(month(person.fields.text("lastMonth")))"
-            : "ainda sem pagamento registrado"
-        if let cents = person.fields["totalCents"]?.number { text += " · total " + NativeDate.money(cents) }
-        return text
     }
 }
 
